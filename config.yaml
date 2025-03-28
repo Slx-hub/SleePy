@@ -1,0 +1,11 @@
+Playlists:
+  asmr:
+    id: 'PLvbXgPoY1AWkjcx9GCeftTIWDLDQ96JKG'
+    delete_after_play: true
+    shutdown_after_play: true
+    randomize: false
+  music:
+    id: 'PLvbXgPoY1AWmUbmyMGrIXtoJ3LHEd_M3V'
+    delete_after_play: false
+    shutdown_after_play: false
+    randomize: true
