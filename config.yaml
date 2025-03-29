@@ -4,8 +4,13 @@ Playlists:
     delete_after_play: true
     shutdown_after_play: true
     randomize: false
-  music:
+  chill-music:
     id: 'PLvbXgPoY1AWmUbmyMGrIXtoJ3LHEd_M3V'
+    delete_after_play: false
+    shutdown_after_play: false
+    randomize: true
+  hard-music:
+    id: 'PLvbXgPoY1AWkgHUl5DUIHouwyCBOD40vc'
     delete_after_play: false
     shutdown_after_play: false
     randomize: true

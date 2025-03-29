@@ -81,28 +81,40 @@ def choose_playlist():
         while True:
             if kp.kbhit():
                 ch = kp.getch()
-                if ch in ('0', '1'):
+                if ch in ('0', '1', '4'):
                     return ch
             time.sleep(0.1)
 
-# ---------- Audio Playback Using mpv with Cancellation ----------
+# ---------- Audio Playback ----------
 def play_audio(video_url):
-    proc = subprocess.Popen(["mpv", "--no-video", video_url], stdin=subprocess.DEVNULL)
+    proc = subprocess.Popen(["mpv", "--no-video", video_url],
+        stdin=subprocess.DEVNULL,  # Prevent mpv from reading input
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        preexec_fn=os.setpgrp)  # Run in a separate process group
 
     print("Press BACKSPACE to skip playback.")
     with KeyboardPoller() as kp:
         while proc.poll() is None:
             if kp.kbhit():
                 key = kp.getch()
-                if key == '-':  # BACKSPACE (0x7f) character
+                if key == "0x7f":  # BACKSPACE (0x7f) character
                     print("Backspace pressed. Cancelling playback...")
                     proc.terminate()
                     proc.wait()
                     break
             time.sleep(0.1)
 
+def play_sound(sound):
+    file = f"/sounds/{sound}"
+    if os.path.exists(file):
+        subprocess.run(["aplay", file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        print("Sound file not found.")
+
 # ---------- Main Loop ----------
 def main():
+    play_sound("startup.wav")
     load_config()
     creds = authenticate()
     youtube = get_youtube_service(creds)
@@ -112,34 +124,40 @@ def main():
     if choice == '0':
         playlist = config_playlists['asmr']
     elif choice == '1':
-        playlist = config_playlists['music']
+        playlist = config_playlists['chill-music']
+    elif choice == '4':
+        playlist = config_playlists['hard-music']
     else:
         print("Invalid choice. Exiting.")
         return
 
-    while True:
-        items = get_playlist_items(youtube, playlist['id'])
-        if not items:
-            print("Playlist is empty.")
-            break
-        
-        index = 0 if not playlist['randomize'] else random.randrange(len(items))
-        selected = items[index]
+    try:
+        while True:
+            items = get_playlist_items(youtube, playlist['id'])
+            if not items:
+                print("Playlist is empty.")
+                break
+            
+            index = 0 if not playlist['randomize'] else random.randrange(len(items))
+            selected = items[index]
 
-        video_id = selected['contentDetails']['videoId']
-        playlist_item_id = selected['id']
-        video_url = f"https://www.youtube.com/watch?v={video_id}"
-        print("Now playing:", video_url)
+            video_id = selected['contentDetails']['videoId']
+            playlist_item_id = selected['id']
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            print("Now playing:", video_url)
 
-        # Play the audio. This call will exit if playback finishes normally or is cancelled.
-        play_audio(video_url)
+            # Play the audio. This call will exit if playback finishes normally or is cancelled.
+            play_audio(video_url)
 
-        if playlist.get('delete_after_play', False):
-            print("Playback finished. Removing video from playlist...")
-            remove_playlist_item(youtube, playlist_item_id)
+            if playlist.get('delete_after_play', False):
+                print("Playback finished. Removing video from playlist...")
+                remove_playlist_item(youtube, playlist_item_id)
 
-        if playlist.get('shutdown_after_play', False):
-            return
+            if playlist.get('shutdown_after_play', False):
+                return
+    except KeyboardInterrupt:
+        print("\nCtrl+C detected. Exiting gracefully...")
+        play_sound("shutdown.wav")
 
 if __name__ == '__main__':
     main()
