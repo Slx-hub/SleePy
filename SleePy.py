@@ -4,6 +4,10 @@ import time
 import os
 import pickle
 import yaml
+import sys
+import select
+import tty
+import termios
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -12,14 +16,28 @@ from google.auth.transport.requests import Request
 SCOPES = ['https://www.googleapis.com/auth/youtube.force-ssl']
 config_playlists = {}
 
+# ---------- Keyboard Polling Helper ----------
+class KeyboardPoller:
+    def __enter__(self):
+        self.fd = sys.stdin.fileno()
+        self.old_settings = termios.tcgetattr(self.fd)
+        tty.setcbreak(self.fd)
+        return self
+    def __exit__(self, type, value, traceback):
+        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
+    def kbhit(self):
+        dr, _, _ = select.select([sys.stdin], [], [], 0.1)
+        return dr != []
+    def getch(self):
+        return sys.stdin.read(1)
+
+# ---------- Authentication and API Functions ----------
 def authenticate():
     global SCOPES
     creds = None
-    # Load existing credentials from token.pickle if available
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
             creds = pickle.load(token)
-    # If there are no valid credentials available, prompt the user to log in
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -27,7 +45,6 @@ def authenticate():
             flow = InstalledAppFlow.from_client_secrets_file(
                 'cred.json', SCOPES)
             creds = flow.run_console()
-        # Save the credentials for future use
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)
     return creds
@@ -50,26 +67,55 @@ def remove_playlist_item(youtube, playlist_item_id):
     request = youtube.playlistItems().delete(id=playlist_item_id)
     request.execute()
 
-def play_audio(video_url):
-    # Use yt-dlp to extract and play audio directly
-    subprocess.run(["yt-dlp", "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0", video_url])
-
 def load_config():
     print("Reloading config file.")
     global config_playlists
-    config_playlists = {}
     with open("config.yaml", 'r') as stream:
         yaml_config = yaml.safe_load(stream.read())
         config_playlists = yaml_config['Playlists']
 
+# ---------- Playlist Selection ----------
+def choose_playlist():
+    print("Press '0' for ASMR or '1' for Music playlist.")
+    with KeyboardPoller() as kp:
+        while True:
+            if kp.kbhit():
+                ch = kp.getch()
+                if ch in ('0', '1'):
+                    return ch
+            time.sleep(0.1)
+
+# ---------- Audio Playback Using mpv with Cancellation ----------
+def play_audio(video_url):
+    proc = subprocess.Popen(["mpv", "--no-video", video_url], stdin=subprocess.DEVNULL)
+
+    print("Press BACKSPACE to skip playback.")
+    with KeyboardPoller() as kp:
+        while proc.poll() is None:
+            if kp.kbhit():
+                key = kp.getch()
+                if key == '-':  # BACKSPACE (0x7f) character
+                    print("Backspace pressed. Cancelling playback...")
+                    proc.terminate()
+                    proc.wait()
+                    break
+            time.sleep(0.1)
+
+# ---------- Main Loop ----------
 def main():
-    global config_playlists
     load_config()
-
     creds = authenticate()
-
-    playlist = config_playlists['music']
     youtube = get_youtube_service(creds)
+
+    # Wait for initial keypress to choose a playlist.
+    choice = choose_playlist()
+    if choice == '0':
+        playlist = config_playlists['asmr']
+    elif choice == '1':
+        playlist = config_playlists['music']
+    else:
+        print("Invalid choice. Exiting.")
+        return
 
     while True:
         items = get_playlist_items(youtube, playlist['id'])
@@ -85,16 +131,15 @@ def main():
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         print("Now playing:", video_url)
 
-        # Play the audio. This call blocks until playback is finished.
+        # Play the audio. This call will exit if playback finishes normally or is cancelled.
         play_audio(video_url)
 
-        if playlist['delete_after_play']:
+        if playlist.get('delete_after_play', False):
             print("Playback finished. Removing video from playlist...")
             remove_playlist_item(youtube, playlist_item_id)
 
-        if playlist['shutdown_after_play']:
+        if playlist.get('shutdown_after_play', False):
             return
-        time.sleep(1)  # small delay before checking the next video
 
 if __name__ == '__main__':
     main()
