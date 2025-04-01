@@ -16,21 +16,6 @@ from google.auth.transport.requests import Request
 SCOPES = ['https://www.googleapis.com/auth/youtube.force-ssl']
 config_playlists = {}
 
-# ---------- Keyboard Polling Helper ----------
-class KeyboardPoller:
-    def __enter__(self):
-        self.fd = sys.stdin.fileno()
-        self.old_settings = termios.tcgetattr(self.fd)
-        tty.setcbreak(self.fd)
-        return self
-    def __exit__(self, type, value, traceback):
-        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
-    def kbhit(self):
-        dr, _, _ = select.select([sys.stdin], [], [], 0.1)
-        return dr != []
-    def getch(self):
-        return sys.stdin.read(1)
-
 # ---------- Authentication and API Functions ----------
 def authenticate():
     global SCOPES
@@ -74,15 +59,27 @@ def load_config():
         yaml_config = yaml.safe_load(stream.read())
         config_playlists = yaml_config['Playlists']
 
-# ---------- Playlist Selection ----------
-def choose_playlist():
-    print("Press '0' for ASMR or '1' for Music playlist.")
+# ---------- Keyboard Polling Helper ----------
+class KeyboardPoller:
+    def __enter__(self):
+        self.fd = sys.stdin.fileno()
+        self.old_settings = termios.tcgetattr(self.fd)
+        tty.setcbreak(self.fd)
+        return self
+    def __exit__(self, type, value, traceback):
+        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
+    def kbhit(self):
+        dr, _, _ = select.select([sys.stdin], [], [], 0.1)
+        return dr != []
+    def getch(self):
+        return sys.stdin.read(1)
+
+# ---------- User Input ----------
+def wait_for_key():
     with KeyboardPoller() as kp:
         while True:
             if kp.kbhit():
-                ch = kp.getch()
-                if ch in ('0', '1', '4'):
-                    return ch
+                return kp.getch()
             time.sleep(0.1)
 
 # ---------- Audio Playback ----------
@@ -93,45 +90,52 @@ def play_audio(video_url):
         stderr=subprocess.DEVNULL,
         preexec_fn=os.setpgrp)  # Run in a separate process group
 
-    print("Press BACKSPACE to skip playback.")
+    print("Press * to skip playback.")
     with KeyboardPoller() as kp:
         while proc.poll() is None:
             if kp.kbhit():
                 key = kp.getch()
-                if key == "0x7f":  # BACKSPACE (0x7f) character
-                    print("Backspace pressed. Cancelling playback...")
+                if key == '*':
+                    print("Cancelling playback...")
                     proc.terminate()
                     proc.wait()
                     break
             time.sleep(0.1)
 
 def play_sound(sound):
-    file = f"/sounds/{sound}"
-    if os.path.exists(file):
-        subprocess.run(["aplay", file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    else:
-        print("Sound file not found.")
+    subprocess.run(["aplay", f"./sounds/{sound}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+# ---------- System Stuff ----------
+
+def shutdown():
+    play_sound("shutdown.wav")
+    os.system("sudo shutdown -h now")
 
 # ---------- Main Loop ----------
 def main():
-    play_sound("startup.wav")
-    load_config()
-    creds = authenticate()
-    youtube = get_youtube_service(creds)
-
-    # Wait for initial keypress to choose a playlist.
-    choice = choose_playlist()
-    if choice == '0':
-        playlist = config_playlists['asmr']
-    elif choice == '1':
-        playlist = config_playlists['chill-music']
-    elif choice == '4':
-        playlist = config_playlists['hard-music']
-    else:
-        print("Invalid choice. Exiting.")
-        return
-
     try:
+        play_sound("ok.wav")
+        load_config()
+        creds = authenticate()
+        youtube = get_youtube_service(creds)
+
+        playlist = None
+        while not playlist:
+            # Wait for initial keypress to choose a playlist.
+            choice = wait_for_key()
+            if choice == '0':
+                playlist = config_playlists['asmr']
+            elif choice == '1':
+                playlist = config_playlists['chill-music']
+            elif choice == '4':
+                playlist = config_playlists['hard-music']
+            elif choice == '*':
+                shutdown()
+                return
+            else:
+                play_sound("error.wav")
+        play_sound("ok.wav")
+    
         while True:
             items = get_playlist_items(youtube, playlist['id'])
             if not items:
@@ -154,10 +158,11 @@ def main():
                 remove_playlist_item(youtube, playlist_item_id)
 
             if playlist.get('shutdown_after_play', False):
+                shutdown()
                 return
-    except KeyboardInterrupt:
-        print("\nCtrl+C detected. Exiting gracefully...")
-        play_sound("shutdown.wav")
+    finally:
+        print("Exiting gracefully...")
+        play_sound("error.wav")
 
 if __name__ == '__main__':
     main()
