@@ -83,7 +83,7 @@ def state_play():
     if not items:
         print("Playlist is empty.")
         play_sound("error.wav")
-        break
+        return
     
     index = 0 if not selected_playlist['randomize'] else random.randrange(len(items))
     selected = items[index]
@@ -124,19 +124,31 @@ def state_quit():
 def authenticate_youtube():
     global SCOPES
     creds = None
+
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
             creds = pickle.load(token)
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print("Refresh failed, re-authenticating...")
+                creds = None  # Force full re-auth
+        if not creds or not creds.valid:
             flow = InstalledAppFlow.from_client_secrets_file(
-                'cred.json', SCOPES)
-            creds = flow.run_console()
+                'cred.json', SCOPES
+            )
+            creds = flow.run_console(
+                access_type='offline',
+                prompt='consent'
+            )
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)
+
     return build('youtube', 'v3', credentials=creds)
+
 
 def get_playlist_items(playlist_id):
     global youtube_auth
