@@ -20,30 +20,6 @@ config_playlists = {}
 youtube_auth = None
 selected_playlist = None
 
-# ---------- State Machine ----------
-
-current_state = 'init'
-
-states = dict({
-    'init':state_init,
-    'select':state_select,
-    'play':state_play,
-    'wait':state_wait,
-    'shutdown':state_shutdown,
-    'quit':state_quit
-})
-
-# ---------- Main Loop ----------
-def main():
-    global states
-    global current_state
-    try:
-        while current_state is not 'quit':
-            states[current_state]()
-    finally:
-        print("Exiting gracefully...")
-        state_quit()
-
 # ---------- State Functions ----------
 
 def state_init():
@@ -242,6 +218,30 @@ def play_sound_cancellable(sound):
 
 def play_sound(sound):
     subprocess.run(["aplay", f"./sounds/{sound}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+# ---------- State Machine ----------
+
+current_state = 'init'
+
+states = dict({
+    'init':state_init,
+    'select':state_select,
+    'play':state_play,
+    'wait':state_wait,
+    'shutdown':state_shutdown,
+    'quit':state_quit
+})
+
+# ---------- Main Loop ----------
+def main():
+    global states
+    global current_state
+    try:
+        while current_state != 'quit':
+            states[current_state]()
+    finally:
+        print("Exiting gracefully...")
+        state_quit()
 
 # ---------- Entry Point ----------
 
