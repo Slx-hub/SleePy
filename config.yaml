@@ -1,16 +1,25 @@
 Playlists:
-  asmr:
+  '1':
+    name: 'asmr'
     id: 'PLvbXgPoY1AWkjcx9GCeftTIWDLDQ96JKG'
     delete_after_play: true
     shutdown_after_play: true
     randomize: false
-  chill-music:
+  '2':
+    name: 'chill-music'
     id: 'PLvbXgPoY1AWmUbmyMGrIXtoJ3LHEd_M3V'
     delete_after_play: false
     shutdown_after_play: false
     randomize: true
-  hard-music:
+  '3':
+    name: 'hard-music'
     id: 'PLvbXgPoY1AWkgHUl5DUIHouwyCBOD40vc'
     delete_after_play: false
     shutdown_after_play: false
+    randomize: true
+  '9':
+    name: 'random-music'
+    id: 'PLd9auH4JIHvupoMgW5YfOjqtj6Lih0MKw'
+    delete_after_play: false
+    shutdown_after_play: true
     randomize: true

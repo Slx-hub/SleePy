@@ -1,249 +1,182 @@
-import random
-import subprocess
-import time
-import os
-import pickle
-import yaml
-import sys
-import select
-import tty
-import termios
+import random, subprocess, time, os, pickle, yaml, sys, select, tty, termios, logging
+from datetime import datetime
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
-# Define the scope and path to your OAuth credentials
-SCOPES = ['https://www.googleapis.com/auth/youtube.force-ssl']
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s", datefmt="%d.%m.%Y %H:%M:%S")
+logger = logging.getLogger(__name__)
+config_playlists, youtube_auth, selected_playlist, current_state, video_index, no_sound_effects = {}, None, None, 'init', 0, False
 
-# Global Vars
-config_playlists = {}
-youtube_auth = None
-selected_playlist = None
+SPECIAL_ACTIONS = {
+    '*': 'shutdown',
+    '/': 'quit',
+    '+': 'skip',
+}
 
-# ---------- State Functions ----------
+SPECIAL_KEYS = list(SPECIAL_ACTIONS.keys())
 
-def state_init():
-    global youtube_auth
-    global current_state
-    play_sound("up.wav")
-    load_config()
-    youtube_auth = authenticate_youtube()
-    current_state = 'select'
-
-def state_select():
-    global selected_playlist
-    global current_state
-    play_sound("ping.wav")
-    selected_playlist = None
-    while not selected_playlist:
-        # Wait for initial keypress to choose a playlist.
-        choice = wait_for_key()
-        if choice == '0':
-            selected_playlist = config_playlists['asmr']
-        elif choice == '1':
-            selected_playlist = config_playlists['chill-music']
-        elif choice == '4':
-            selected_playlist = config_playlists['hard-music']
-        elif choice == '*':
-            current_state = 'shutdown'
-            return
-        else:
-            play_sound("error.wav")
-    current_state = 'play'
-    play_sound("ok.wav")
-
-def state_play():
-    global selected_playlist
-    global current_state
-    items = get_playlist_items(selected_playlist['id'])
-    if not items:
-        print("Playlist is empty.")
-        play_sound("error.wav")
-        return
-    
-    index = 0 if not selected_playlist['randomize'] else random.randrange(len(items))
-    selected = items[index]
-
-    video_id = selected['contentDetails']['videoId']
-    playlist_item_id = selected['id']
-    video_url = f"https://www.youtube.com/watch?v={video_id}"
-    print("Now playing:", video_url)
-
-    # Play the audio. This call will exit if playback finishes normally or is cancelled.
-    stream_video_sound_cancellable(video_url)
-
-    if selected_playlist.get('delete_after_play', False):
-        print("Playback finished. Removing video from playlist...")
-        remove_playlist_item(playlist_item_id)
-
-    if selected_playlist.get('shutdown_after_play', False):
-        current_state = 'wait'
-        return
-    
-def state_wait():
-    global current_state
-    cancel_type = play_sound_cancellable("wait.wav")
-    if cancel_type == 'continue':
-        current_state = 'play'
-    else:
-        current_state = 'shutdown'
-    
-def state_shutdown():
-    play_sound("shutdown.wav")
-    os.system("sudo shutdown -h now")
-
-def state_quit():
-    play_sound("down.wav")
-
-# ---------- Authentication And General Functions ----------
-
-def authenticate_youtube():
-    global SCOPES
-    creds = None
-
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-            except Exception as e:
-                print("Refresh failed, re-authenticating...")
-                creds = None  # Force full re-auth
-        if not creds or not creds.valid:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'cred.json', SCOPES
-            )
-            creds = flow.run_console(
-                access_type='offline',
-                prompt='consent'
-            )
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
-
-    return build('youtube', 'v3', credentials=creds)
-
-
-def get_playlist_items(playlist_id):
-    global youtube_auth
-    request = youtube_auth.playlistItems().list(
-        part="snippet,contentDetails",
-        playlistId=playlist_id
-    )
-    response = request.execute()
-    if response.get('items'):
-        return response['items']
-    else:
-        return None
-
-def remove_playlist_item(playlist_item_id):
-    global youtube_auth
-    request = youtube_auth.playlistItems().delete(id=playlist_item_id)
-    request.execute()
-
-def load_config():
-    global config_playlists
-    print("Reloading config file.")
-    with open("config.yaml", 'r') as stream:
-        yaml_config = yaml.safe_load(stream.read())
-        config_playlists = yaml_config['Playlists']
-
-# ---------- Keyboard Polling Helper ----------
 class KeyboardPoller:
     def __enter__(self):
-        self.fd = sys.stdin.fileno()
-        self.old_settings = termios.tcgetattr(self.fd)
-        tty.setcbreak(self.fd)
-        return self
-    def __exit__(self, type, value, traceback):
-        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_settings)
-    def kbhit(self):
-        dr, _, _ = select.select([sys.stdin], [], [], 0.1)
-        return dr != []
-    def getch(self):
-        return sys.stdin.read(1)
+        self.fd = sys.stdin.fileno(); self.old = termios.tcgetattr(self.fd); tty.setcbreak(self.fd); return self
+    def __exit__(self, *args): termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old)
+    def kbhit(self): return select.select([sys.stdin], [], [], 0.1)[0] != []
+    def getch(self): return sys.stdin.read(1)
 
-# ---------- User Input ----------
+load_config = lambda: (
+    logger.info("Reloading config file."),
+    exec("global config_playlists\nwith open('config.yaml') as f:\n    config_playlists = yaml.safe_load(f.read()).get('Playlists', {})"),
+    logger.info("Config loaded.")
+)
+
+def play_sound(s): 
+    if no_sound_effects:
+        return
+    try: subprocess.run(["aplay", f"./sounds/{s}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e: logger.error("Sound error (%s): %s", s, e)
+
+def run_cancellable_process(cmd, action_keys):
+    try:
+        proc = subprocess.Popen(cmd,
+            stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,preexec_fn=os.setpgrp)
+    except Exception as e:
+        logger.error("Process error for command %s: %s", cmd, e)
+        return ""
+    logger.info("Started process: %s. Waiting for keys: %s", ' '.join(cmd), action_keys)
+    with KeyboardPoller() as kp:
+        while proc.poll() is None:
+            if kp.kbhit():
+                key = kp.getch()
+                if key in action_keys:
+                    logger.info("Key '%s' pressed, terminating process.", key)
+                    proc.terminate(); proc.wait()
+                    return key
+            time.sleep(0.1)
+    return ""
+
+def play_sound_cancellable(filename, action_keys):
+    return run_cancellable_process(["aplay", f"./sounds/{filename}"], action_keys)
+
+def stream_video_sound_cancellable(url, action_keys):
+    return run_cancellable_process(["mpv", "--no-video", url], action_keys)
+
+def authenticate_youtube():
+    creds = None
+    if os.path.exists('token.pickle'):
+        try:
+            with open('token.pickle','rb') as t: creds = pickle.load(t)
+            logger.info("Loaded credentials.")
+        except Exception as e: logger.error("Token load error: %s", e)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            try: creds.refresh(Request()); logger.info("Token refreshed.")
+            except Exception as e: logger.error("Refresh failed: %s", e); creds = None
+        if not creds or not creds.valid:
+            play_sound("error.wav")
+            try:
+                flow = InstalledAppFlow.from_client_secrets_file('cred.json', 'https://www.googleapis.com/auth/youtube.force-ssl')
+                creds = flow.run_console(access_type='offline', prompt='consent')
+                logger.info("Obtained new credentials.")
+            except Exception as e: logger.error("Auth error: %s", e); raise
+        with open('token.pickle','wb') as t: pickle.dump(creds, t); logger.info("Saved credentials.")
+    return build('youtube','v3', credentials=creds)
+
+def get_playlist_items(pid):
+    try:
+        req = youtube_auth.playlistItems().list(part="snippet,contentDetails", playlistId=pid, maxResults=20)
+        items = req.execute().get('items')
+        logger.info("Found %d items.", len(items) if items else 0)
+        return items
+    except Exception as e: logger.error("Playlist error: %s", e); return None
+
+def remove_playlist_item(pid): 
+    try: youtube_auth.playlistItems().delete(id=pid).execute(); logger.info("Removed %s", pid)
+    except Exception as e: logger.error("Removal error %s: %s", pid, e)
+
 def wait_for_key():
     with KeyboardPoller() as kp:
         while True:
             if kp.kbhit():
-                return kp.getch()
+                k = kp.getch(); logger.info("Key: %s", k); return k
             time.sleep(0.1)
 
-# ---------- Audio Playback ----------
-def stream_video_sound_cancellable(video_url):
-    proc = subprocess.Popen(["mpv", "--no-video", video_url],
-        stdin=subprocess.DEVNULL,  # Prevent from reading input
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        preexec_fn=os.setpgrp)  # Run in a separate process group
+def handle_action_key(action_key, next_state):
+    global SPECIAL_ACTIONS, states, current_state
+    action = SPECIAL_ACTIONS.get(action_key)
+    if action == None:
+        return
+    if action in states:
+        current_state = action
+        return
+    if action == 'skip' and next_state:
+        current_state = next_state
 
-    print("Press * to skip playback.")
-    with KeyboardPoller() as kp:
-        while proc.poll() is None:
-            if kp.kbhit():
-                key = kp.getch()
-                if key == '*':
-                    print("Cancelling playback...")
-                    proc.terminate()
-                    proc.wait()
-                    break
-            time.sleep(0.1)
+def state_init():
+    global youtube_auth, current_state
+    play_sound("up.wav"); load_config(); youtube_auth = authenticate_youtube(); current_state = 'select'
+    logger.info("State changed to 'select'.")
 
-def play_sound_cancellable(sound):
-    proc = subprocess.Popen(["aplay", f"./sounds/{sound}"],
-        stdin=subprocess.DEVNULL,  # Prevent from reading input
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        preexec_fn=os.setpgrp)  # Run in a separate process group
+def state_select():
+    global selected_playlist, current_state
+    playlist_keys = list(config_playlists.keys())
 
-    print("Press * to skip playback.")
-    with KeyboardPoller() as kp:
-        while proc.poll() is None:
-            if kp.kbhit():
-                key = kp.getch()
-                if key == '*':
-                    print("Cancelling playback...")
-                    proc.terminate()
-                    proc.wait()
-                    return 'shutdown'
-                if key == '\r':
-                    proc.terminate()
-                    proc.wait()
-                    return 'continue'
-            time.sleep(0.1)
+    play_sound("ping.wav"); selected_playlist = None
+    logger.info("Select playlist")
+    while not selected_playlist:
+        ch = wait_for_key()
+        if ch in playlist_keys: selected_playlist = config_playlists.get(ch)
+        elif ch=='*': current_state = 'shutdown'; return
+        else: play_sound("error.wav"); logger.warning("Invalid key: %s", ch)
+    current_state = 'play'; play_sound("ok.wav"); logger.info("Playlist selected; state changed to 'play'.")
 
-def play_sound(sound):
-    subprocess.run(["aplay", f"./sounds/{sound}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def state_play():
+    global selected_playlist, current_state, SPECIAL_KEYS, video_index
+    items = get_playlist_items(selected_playlist['id'])
+    if not items:
+        logger.warning("Playlist empty."); play_sound("error.wav"); return
+    idx = video_index if not selected_playlist.get('randomize', False) else random.randrange(len(items))
+    sel = items[idx]
+    video_id, pid = sel['contentDetails']['videoId'], sel['id']
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    logger.info("Now playing: %s", url)
+    pressed_key = stream_video_sound_cancellable(url, SPECIAL_KEYS)
+    handle_action_key(pressed_key, 'play')
 
-# ---------- State Machine ----------
+    if pressed_key == '' and selected_playlist.get('delete_after_play', False):
+        logger.info("Deleting video."); remove_playlist_item(pid)
+    else:
+        video_index = video_index + 1
+    if pressed_key == '' and selected_playlist.get('shutdown_after_play', False): current_state = 'wait'
 
-current_state = 'init'
+def state_wait():
+    global current_state, SPECIAL_KEYS, no_sound_effects
+    pressed_key = play_sound_cancellable("wait.wav", SPECIAL_KEYS)
+    handle_action_key(pressed_key, 'play')
+    if pressed_key == "":
+        no_sound_effects = True
+        current_state = 'shutdown'
 
-states = dict({
-    'init':state_init,
-    'select':state_select,
-    'play':state_play,
-    'wait':state_wait,
-    'shutdown':state_shutdown,
-    'quit':state_quit
-})
+def state_shutdown():
+    play_sound("shutdown.wav"); logger.info("Shutting down."); os.system("sudo shutdown -h now")
 
-# ---------- Main Loop ----------
+def state_quit():
+    play_sound("down.wav"); logger.info("Exiting application.")
+
+states = {'init': state_init, 'select': state_select, 'play': state_play, 'wait': state_wait, 'shutdown': state_shutdown, 'quit': state_quit}
+
 def main():
-    global states
     global current_state
     try:
         while current_state != 'quit':
-            states[current_state]()
+            try:
+                states[current_state]()
+            except Exception as e:
+                logger.error("Error in state %s: %s", current_state, e)
+                current_state = 'quit'
+    except KeyboardInterrupt:
+        logger.info("Ctrl+C detected.")
     finally:
-        print("Exiting gracefully...")
         state_quit()
 
-# ---------- Entry Point ----------
-
-if __name__ == '__main__':
+if __name__=='__main__':
     main()
