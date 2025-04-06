@@ -22,4 +22,4 @@ Playlists:
     id: 'PLd9auH4JIHvupoMgW5YfOjqtj6Lih0MKw'
     delete_after_play: false
     shutdown_after_play: true
-    randomize: true
+    randomize: false

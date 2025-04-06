@@ -11,6 +11,7 @@ config_playlists, youtube_auth, selected_playlist, current_state, video_index, n
 SPECIAL_ACTIONS = {
     '*': 'shutdown',
     '/': 'quit',
+    '-': 'select',
     '+': 'skip',
 }
 
@@ -83,7 +84,7 @@ def authenticate_youtube():
 
 def get_playlist_items(pid):
     try:
-        req = youtube_auth.playlistItems().list(part="snippet,contentDetails", playlistId=pid, maxResults=20)
+        req = youtube_auth.playlistItems().list(part="snippet,contentDetails", playlistId=pid, maxResults=50)
         items = req.execute().get('items')
         logger.info("Found %d items.", len(items) if items else 0)
         return items
