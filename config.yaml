@@ -17,9 +17,9 @@ Playlists:
     delete_after_play: false
     shutdown_after_play: false
     randomize: true
-  '1':
+  '4':
     name: 'local-asmr'
-    id: './local/asmr/'
+    id: './local/asmr'
     delete_after_play: false
     shutdown_after_play: true
     randomize: true

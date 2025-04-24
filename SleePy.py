@@ -1,4 +1,4 @@
-import random, subprocess, time, os, pickle, yaml, sys, select, tty, termios, logging, glob
+import random, subprocess, time, os, pickle, yaml, sys, select, tty, termios, logging
 from datetime import datetime
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -99,7 +99,7 @@ def play_youtube_item():
     global selected_playlist, current_state, SPECIAL_KEYS, video_index
     items = get_playlist_items(selected_playlist['id'])
     if not items:
-        logger.warning("Playlist empty."); play_sound("error.wav"); return
+        logger.warning("Playlist empty."); play_sound("error.wav"); current_state = 'select'; return
     idx = video_index if not selected_playlist.get('randomize', False) else random.randrange(len(items))
     sel = items[idx]
     video_id, pid = sel['contentDetails']['videoId'], sel['id']
@@ -116,13 +116,13 @@ def play_youtube_item():
 
 def play_local_item():
     global selected_playlist, current_state, SPECIAL_KEYS, video_index
-    items = glob.glob(f"{selected_playlist['id']}*.mp4")
+    items = os.listdir(selected_playlist['id'])
     if not items:
-        logger.warning("Folder empty."); play_sound("error.wav"); return
+        logger.warning("Folder empty."); play_sound("error.wav"); current_state = 'select'; return
     idx = video_index if not selected_playlist.get('randomize', False) else random.randrange(len(items))
     selected = items[idx]
     logger.info("Now playing: %s", selected)
-    pressed_key = play_sound_cancellable(selected, SPECIAL_KEYS)
+    pressed_key = play_sound_cancellable(f"{selected_playlist['id']}/{selected}", SPECIAL_KEYS)
     handle_action_key(pressed_key, 'play')
 
     if pressed_key == '' and selected_playlist.get('delete_after_play', False):
