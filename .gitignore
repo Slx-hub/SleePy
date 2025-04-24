@@ -1,3 +1,4 @@
 *.mp3
 *.pickle
 cred.json
+/local/*

@@ -1,4 +1,4 @@
-import random, subprocess, time, os, pickle, yaml, sys, select, tty, termios, logging
+import random, subprocess, time, os, pickle, yaml, sys, select, tty, termios, logging, glob
 from datetime import datetime
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -55,13 +55,14 @@ def run_cancellable_process(cmd, action_keys):
             time.sleep(0.1)
     return ""
 
-def play_sound_cancellable(filename, action_keys):
-    return run_cancellable_process(["aplay", f"./sounds/{filename}"], action_keys)
+def play_sound_cancellable(filepath, action_keys):
+    return run_cancellable_process(["aplay", filepath], action_keys)
 
 def stream_video_sound_cancellable(url, action_keys):
     return run_cancellable_process(["mpv", "--no-video", url], action_keys)
 
 def authenticate_youtube():
+    global current_state
     creds = None
     if os.path.exists('token.pickle'):
         try:
@@ -78,7 +79,7 @@ def authenticate_youtube():
                 flow = InstalledAppFlow.from_client_secrets_file('cred.json', 'https://www.googleapis.com/auth/youtube.force-ssl')
                 creds = flow.run_console(access_type='offline', prompt='consent')
                 logger.info("Obtained new credentials.")
-            except Exception as e: logger.error("Auth error: %s", e); raise
+            except Exception as e: logger.error("Auth error: %s", e); return
         with open('token.pickle','wb') as t: pickle.dump(creds, t); logger.info("Saved credentials.")
     return build('youtube','v3', credentials=creds)
 
@@ -93,6 +94,42 @@ def get_playlist_items(pid):
 def remove_playlist_item(pid): 
     try: youtube_auth.playlistItems().delete(id=pid).execute(); logger.info("Removed %s", pid)
     except Exception as e: logger.error("Removal error %s: %s", pid, e)
+
+def play_youtube_item():
+    global selected_playlist, current_state, SPECIAL_KEYS, video_index
+    items = get_playlist_items(selected_playlist['id'])
+    if not items:
+        logger.warning("Playlist empty."); play_sound("error.wav"); return
+    idx = video_index if not selected_playlist.get('randomize', False) else random.randrange(len(items))
+    sel = items[idx]
+    video_id, pid = sel['contentDetails']['videoId'], sel['id']
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    logger.info("Now playing: %s", url)
+    pressed_key = stream_video_sound_cancellable(url, SPECIAL_KEYS)
+    handle_action_key(pressed_key, 'play')
+
+    if pressed_key == '' and selected_playlist.get('delete_after_play', False):
+        logger.info("Deleting video."); remove_playlist_item(pid)
+    else:
+        video_index = video_index + 1
+    if pressed_key == '' and selected_playlist.get('shutdown_after_play', False): current_state = 'wait'
+
+def play_local_item():
+    global selected_playlist, current_state, SPECIAL_KEYS, video_index
+    items = glob.glob(f"{selected_playlist['id']}*.mp4")
+    if not items:
+        logger.warning("Folder empty."); play_sound("error.wav"); return
+    idx = video_index if not selected_playlist.get('randomize', False) else random.randrange(len(items))
+    selected = items[idx]
+    logger.info("Now playing: %s", selected)
+    pressed_key = play_sound_cancellable(selected, SPECIAL_KEYS)
+    handle_action_key(pressed_key, 'play')
+
+    if pressed_key == '' and selected_playlist.get('delete_after_play', False):
+        logger.info("Deleting video."); remove_playlist_item(pid)
+    else:
+        video_index = video_index + 1
+    if pressed_key == '' and selected_playlist.get('shutdown_after_play', False): current_state = 'wait'
 
 def wait_for_key():
     with KeyboardPoller() as kp:
@@ -118,7 +155,8 @@ def state_init():
     logger.info("State changed to 'select'.")
 
 def state_select():
-    global selected_playlist, current_state
+    global selected_playlist, current_state, video_index
+    video_index = 0
     playlist_keys = list(config_playlists.keys())
 
     play_sound("ping.wav"); selected_playlist = None
@@ -131,27 +169,15 @@ def state_select():
     current_state = 'play'; play_sound("ok.wav"); logger.info("Playlist selected; state changed to 'play'.")
 
 def state_play():
-    global selected_playlist, current_state, SPECIAL_KEYS, video_index
-    items = get_playlist_items(selected_playlist['id'])
-    if not items:
-        logger.warning("Playlist empty."); play_sound("error.wav"); return
-    idx = video_index if not selected_playlist.get('randomize', False) else random.randrange(len(items))
-    sel = items[idx]
-    video_id, pid = sel['contentDetails']['videoId'], sel['id']
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    logger.info("Now playing: %s", url)
-    pressed_key = stream_video_sound_cancellable(url, SPECIAL_KEYS)
-    handle_action_key(pressed_key, 'play')
-
-    if pressed_key == '' and selected_playlist.get('delete_after_play', False):
-        logger.info("Deleting video."); remove_playlist_item(pid)
+    global selected_playlist
+    if selected_playlist['id'].startswith('./'):
+        play_local_item()
     else:
-        video_index = video_index + 1
-    if pressed_key == '' and selected_playlist.get('shutdown_after_play', False): current_state = 'wait'
+        play_youtube_item()
 
 def state_wait():
     global current_state, SPECIAL_KEYS, no_sound_effects
-    pressed_key = play_sound_cancellable("wait.wav", SPECIAL_KEYS)
+    pressed_key = play_sound_cancellable("./sounds/wait.wav", SPECIAL_KEYS)
     handle_action_key(pressed_key, 'play')
     if pressed_key == "":
         no_sound_effects = True
