@@ -24,11 +24,24 @@ class KeyboardPoller:
     def kbhit(self): return select.select([sys.stdin], [], [], 0.1)[0] != []
     def getch(self): return sys.stdin.read(1)
 
-load_config = lambda: (
-    logger.info("Reloading config file."),
-    exec("global config_playlists\nwith open('config.yaml') as f:\n    config_playlists = yaml.safe_load(f.read()).get('Playlists', {})"),
+def load_config():
+    global config_playlists
+    logger.info("Reloading config file.")
+    with open('config.yaml') as f:
+        config = yaml.safe_load(f.read())
+        if not config:
+            play_sound("error.wav")
+            return
+        # Load log level
+        log_level_str = config.get('LogLevel', 'INFO').upper()
+        log_level = getattr(logging, log_level_str, logging.INFO)
+        logging.basicConfig(level=log_level)
+        logger.setLevel(log_level)
+        logger.info(f"Log level set to {log_level_str}")
+
+        # Load playlists
+        config_playlists = config.get('Playlists', {})
     logger.info("Config loaded.")
-)
 
 def play_sound(s): 
     if no_sound_effects:
@@ -64,24 +77,50 @@ def stream_video_sound_cancellable(url, action_keys):
 def authenticate_youtube():
     global current_state
     creds = None
+
+    # Load existing credentials if available
     if os.path.exists('token.pickle'):
-        try:
-            with open('token.pickle','rb') as t: creds = pickle.load(t)
-            logger.info("Loaded credentials.")
-        except Exception as e: logger.error("Token load error: %s", e)
+        with open('token.pickle', 'rb') as token:
+            creds = pickle.load(token)
+        logger.info("Loaded credentials from token.pickle")
+        if hasattr(creds, 'expiry'):
+            logger.info("Existing token expiry date: %s", creds.expiry)
+            logger.debug("DEBUG: %s", creds.__dict__)
+
+    # If there are no (valid) credentials, or they're expired, refresh or acquire new ones
     if not creds or not creds.valid:
+        # Attempt to refresh if possible
         if creds and creds.expired and creds.refresh_token:
-            try: creds.refresh(Request()); logger.info("Token refreshed.")
-            except Exception as e: logger.error("Refresh failed: %s", e); creds = None
-        if not creds or not creds.valid:
+            try:
+                creds.refresh(Request())
+                logger.info("Refreshed credentials successfully")
+                logger.info("Refreshed token expiry date: %s", creds.expiry)
+            except Exception as e:
+                logger.error("Token refresh failed: %s", e)
+                creds = None
+        # If refresh didn't work or no credentials, run full flow
+        if not creds:
             play_sound("error.wav")
             try:
-                flow = InstalledAppFlow.from_client_secrets_file('cred.json', 'https://www.googleapis.com/auth/youtube.force-ssl')
-                creds = flow.run_console(access_type='offline', prompt='consent')
-                logger.info("Obtained new credentials.")
-            except Exception as e: logger.error("Auth error: %s", e); return
-        with open('token.pickle','wb') as t: pickle.dump(creds, t); logger.info("Saved credentials.")
-    return build('youtube','v3', credentials=creds)
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    'cred.json',
+                    ['https://www.googleapis.com/auth/youtube.force-ssl']
+                )
+                creds = flow.run_console()
+                logger.info("Acquired new credentials via auth flow")
+                if hasattr(creds, 'expiry'):
+                    logger.info("New token expiry date: %s", creds.expiry)
+            except Exception as e:
+                logger.error("Auth error: %s", e)
+                return
+
+            # Save the credentials for the next run
+            with open('token.pickle', 'wb') as token:
+                pickle.dump(creds, token)
+            logger.info("Saved new credentials to token.pickle")
+
+    # Return an authorized YouTube API client
+    return build('youtube', 'v3', credentials=creds)
 
 def get_playlist_items(pid):
     try:
@@ -142,16 +181,18 @@ def handle_action_key(action_key, next_state):
     global SPECIAL_ACTIONS, states, current_state
     action = SPECIAL_ACTIONS.get(action_key)
     if action == None:
-        return
+        return False
     if action in states:
         current_state = action
-        return
+        return True
     if action == 'skip' and next_state:
         current_state = next_state
+        return True
+    return False
 
 def state_init():
     global youtube_auth, current_state
-    play_sound("up.wav"); load_config(); youtube_auth = authenticate_youtube(); current_state = 'select'
+    load_config(); play_sound("up.wav"); youtube_auth = authenticate_youtube(); current_state = 'select'
     logger.info("State changed to 'select'.")
 
 def state_select():
@@ -164,7 +205,7 @@ def state_select():
     while not selected_playlist:
         ch = wait_for_key()
         if ch in playlist_keys: selected_playlist = config_playlists.get(ch)
-        elif ch=='*': current_state = 'shutdown'; return
+        elif handle_action_key(ch, 'select'): return
         else: play_sound("error.wav"); logger.warning("Invalid key: %s", ch)
     current_state = 'play'; play_sound("ok.wav"); logger.info("Playlist selected; state changed to 'play'.")
 

@@ -1,3 +1,4 @@
+LogLevel: DEBUG
 Playlists:
   '1':
     name: 'asmr'

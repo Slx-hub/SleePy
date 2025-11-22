@@ -1,0 +1,12 @@
+[Unit]
+Description=SleePy Startup Script
+After=sound.target
+
+[Service]
+Type=oneshot
+User=pi
+ExecStart=/usr/bin/python3 /home/pi/Music/startup_jingle.py
+WorkingDirectory=/home/pi/Music/
+
+[Install]
+WantedBy=default.target
