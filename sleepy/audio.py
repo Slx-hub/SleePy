@@ -18,10 +18,6 @@ class AudioPlayer:
     APLAY_CMD = 'aplay'
     MPV_CMD = 'mpv'
     
-    # Volume control settings
-    APLAY_VOLUME = 100  # Percentage (0-100)
-    MPV_VOLUME = 100    # Percentage (0-100)
-    
     def __init__(self, mute: bool = False):
         self.mute = mute
     
@@ -33,7 +29,7 @@ class AudioPlayer:
         sound_path = self.SOUND_DIR / sound_file
         try:
             subprocess.run(
-                [self.APLAY_CMD, '-v', str(self.APLAY_VOLUME), str(sound_path)],
+                [self.APLAY_CMD, str(sound_path)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False
@@ -46,7 +42,7 @@ class AudioPlayer:
     def play_sound_cancellable(self, filepath: str, action_keys: List[str]) -> str:
         """Play a sound file, allowing cancellation via special keys."""
         return self._run_cancellable_process(
-            [self.APLAY_CMD, '-v', str(self.APLAY_VOLUME), filepath],
+            [self.APLAY_CMD, str(filepath)],
             action_keys
         )
     
@@ -58,7 +54,6 @@ class AudioPlayer:
             [
                 self.MPV_CMD,
                 '--no-video',
-                f'--volume={self.MPV_VOLUME}',
                 url
             ],
             action_keys
