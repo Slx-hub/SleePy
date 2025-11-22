@@ -2,3 +2,4 @@
 *.pickle
 cred.json
 /local/*
+__pycache__
