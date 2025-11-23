@@ -30,3 +30,7 @@ SPECIAL_ACTIONS = {
 
 SPECIAL_KEYS = list(SPECIAL_ACTIONS.keys())
 YOUTUBE_SCOPE = ['https://www.googleapis.com/auth/youtube.force-ssl']
+
+# Audio settings
+AUDIO_VOLUME_LEVEL = 80
+AUDIO_SOUND_DIR = './sounds'

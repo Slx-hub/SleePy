@@ -6,6 +6,10 @@ import time
 from pathlib import Path
 from typing import List
 
+from sleepy.constants import (
+    AUDIO_SOUND_DIR,
+    AUDIO_VOLUME_LEVEL,
+)
 from sleepy.input_handler import KeyboardPoller
 
 LOGGER = logging.getLogger(__name__)
@@ -13,20 +17,34 @@ LOGGER = logging.getLogger(__name__)
 
 class AudioPlayer:
     """Handles audio playback and sound effects."""
-    
-    SOUND_DIR = Path('./sounds')
+
     APLAY_CMD = 'aplay'
     MPV_CMD = 'mpv'
     
     def __init__(self, mute: bool = False):
         self.mute = mute
+        self._set_system_volume()
+    
+    @staticmethod
+    def _set_system_volume() -> None:
+        """Set system ALSA volume on startup."""
+        try:
+            subprocess.run(
+                ['amixer', 'sset', 'Master', f'{AUDIO_VOLUME_LEVEL}%'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False
+            )
+            LOGGER.info("System volume set to %d%%", AUDIO_VOLUME_LEVEL)
+        except Exception as e:
+            LOGGER.warning("Failed to set system volume: %s", e)
     
     def play_sound(self, sound_file: str) -> None:
         """Play a sound effect file."""
         if self.mute:
             return
         
-        sound_path = self.SOUND_DIR / sound_file
+        sound_path = Path(AUDIO_SOUND_DIR) / sound_file
         try:
             subprocess.run(
                 [self.APLAY_CMD, str(sound_path)],
