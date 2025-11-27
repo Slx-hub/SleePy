@@ -1,8 +1,22 @@
-import subprocess
+import logging
+import sys
+import time
 
-if __name__=='__main__':
-    print("Hello World!")
-    try: 
-        subprocess.run(["aplay", f"./sounds/startup.wav"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception as e: 
-        print("Sound error: %s", e)
+from sleepy.audio import AudioPlayer
+
+# Configure logging to use systemd journal
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(name)s[%(process)d]: %(levelname)s: %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger('sleepy-startup')
+
+if __name__ == '__main__':
+    logger.info("SleePy startup jingle!")
+    time.sleep(2)
+    
+    player = AudioPlayer()
+    player.play_sound("startup.wav")
+    
+    logger.info("SleePy startup jingle completed")
