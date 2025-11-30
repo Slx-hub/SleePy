@@ -66,12 +66,9 @@ class StateMachine:
         self.config.load()
         self.audio_player.play_sound("up.wav")
         
-        if self.youtube_auth.authenticate():
-            self.current_state = State.SELECT
-            LOGGER.info("State changed to %s", self.current_state)
-        else:
-            LOGGER.error("YouTube authentication failed")
-            self.current_state = State.QUIT
+        self.youtube_auth.authenticate()
+        self.current_state = State.SELECT
+        LOGGER.info("State changed to %s", self.current_state)
     
     def _state_select(self) -> None:
         """Select a playlist."""

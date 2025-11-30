@@ -83,6 +83,11 @@ class YouTubeAuthenticator:
                 YOUTUBE_SCOPE
             )
             creds = flow.run_console()
+            
+            if not creds:
+                LOGGER.warning("No credentials obtained from authentication flow")
+                return None
+            
             LOGGER.info("New credentials acquired")
             
             # Save credentials
@@ -91,6 +96,9 @@ class YouTubeAuthenticator:
             LOGGER.info("Credentials saved to %s", self.TOKEN_FILE)
             
             return creds
+        except (KeyboardInterrupt, EOFError):
+            LOGGER.warning("Authentication cancelled by user")
+            return None
         except Exception as e:
             LOGGER.error("Authentication failed: %s", e)
             return None
