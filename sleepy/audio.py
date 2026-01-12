@@ -21,6 +21,8 @@ class AudioPlayer:
     APLAY_CMD = 'aplay'
     MPV_CMD = 'mpv'
     
+    RIGHT_ARROW = '\x1b[C'
+    
     def __init__(self, mute: bool = False):
         self.mute = mute
         self._set_system_volume()
@@ -57,38 +59,66 @@ class AudioPlayer:
         except Exception as e:
             LOGGER.error("Failed to play sound %s: %s", sound_file, e)
     
-    def play_sound_cancellable(self, filepath: str, action_keys: List[str]) -> str:
-        """Play a sound file, allowing cancellation via special keys."""
+    def play_sound_cancellable(self, filepath: str, action_keys: List[str], non_terminating_keys: List[str] = None) -> str:
+        """Play a sound file, allowing cancellation via special keys.
+        
+        Args:
+            filepath: Path to the sound file.
+            action_keys: Keys that can cancel playback.
+            non_terminating_keys: Keys that don't stop playback (default: empty list).
+        """
+        if non_terminating_keys is None:
+            non_terminating_keys = []
         return self._run_cancellable_process(
             [self.APLAY_CMD, str(filepath)],
-            action_keys
+            action_keys,
+            non_terminating_keys
         )
     
     def stream_video_sound_cancellable(
-        self, url: str, action_keys: List[str]
+        self, url: str, action_keys: List[str], non_terminating_keys: List[str] = None
     ) -> str:
-        """Stream video audio, allowing cancellation via special keys."""
+        """Stream video audio, allowing cancellation via special keys.
+        
+        Args:
+            url: YouTube URL to stream.
+            action_keys: Keys that can cancel playback.
+            non_terminating_keys: Keys that don't stop playback (default: empty list).
+        """
+        if non_terminating_keys is None:
+            non_terminating_keys = []
         return self._run_cancellable_process(
             [
                 self.MPV_CMD,
                 '--no-video',
                 url
             ],
-            action_keys
+            action_keys,
+            non_terminating_keys
         )
     
     @staticmethod
-    def _run_cancellable_process(cmd: List[str], action_keys: List[str]) -> str:
+    def _run_cancellable_process(cmd: List[str], action_keys: List[str], non_terminating_keys: List[str] = None) -> str:
         """Run a process, allowing cancellation via special keys.
+        
+        Args:
+            cmd: Command to execute.
+            action_keys: Keys that can cancel playback.
+            non_terminating_keys: Keys that don't stop playback (default: empty list).
         
         Returns:
             The key pressed to cancel, or empty string if process completed normally.
         """
+        if non_terminating_keys is None:
+            non_terminating_keys = []
+
+        non_terminating_action = ""
+
         try:
             import os
             proc = subprocess.Popen(
                 cmd,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 preexec_fn=os.setpgrp if hasattr(os, 'setpgrp') else None
@@ -107,7 +137,11 @@ class AudioPlayer:
                 while proc.poll() is None:
                     if kp.kbhit():
                         key = kp.getch()
-                        if key in action_keys:
+                        if  key in non_terminating_keys:
+                            LOGGER.info("Key '%s' pressed (non-terminating).", key)
+                            # Return the key but don't terminate the process
+                            non_terminating_action = key
+                        elif key in action_keys:
                             LOGGER.info("Key '%s' pressed, terminating process.", key)
                             proc.terminate()
                             try:
@@ -121,4 +155,4 @@ class AudioPlayer:
             LOGGER.error("Error while monitoring process: %s", e)
             proc.terminate()
         
-        return ""
+        return non_terminating_action

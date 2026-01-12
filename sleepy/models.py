@@ -12,6 +12,7 @@ class PlaylistConfig:
     delete_after_play: bool = False
     shutdown_after_play: bool = False
     randomize: bool = False
+    download_after_play: bool = False
     
     def is_local(self) -> bool:
         """Check if this is a local file playlist."""

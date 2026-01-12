@@ -9,7 +9,8 @@ class Action(str, Enum):
     QUIT = 'quit'
     SELECT = 'select'
     SKIP = 'skip'
-
+    SKIP_DELETE = 'skip and delete'
+    DOWNLOAD = 'download'
 
 class State(str, Enum):
     """Application states."""
@@ -26,11 +27,16 @@ SPECIAL_ACTIONS = {
     '/': Action.QUIT,
     '-': Action.SELECT,
     '+': Action.SKIP,
+    '0': Action.SKIP_DELETE,
+    ',': Action.DOWNLOAD,
+    '.': Action.DOWNLOAD,
 }
 
 SPECIAL_KEYS = list(SPECIAL_ACTIONS.keys())
+NON_TERMINATING_KEYS = [',', '.']  # Keys that don't stop playback
 YOUTUBE_SCOPE = ['https://www.googleapis.com/auth/youtube.force-ssl']
 
 # Audio settings
 AUDIO_VOLUME_LEVEL = 80
 AUDIO_SOUND_DIR = './sounds'
+LOCAL_ASMR_DIR = './local/asmr'

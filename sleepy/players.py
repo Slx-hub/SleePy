@@ -4,10 +4,10 @@ import logging
 import random
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 from sleepy.audio import AudioPlayer
-from sleepy.constants import SPECIAL_KEYS
+from sleepy.constants import SPECIAL_KEYS, NON_TERMINATING_KEYS
 from sleepy.models import PlaylistConfig
 
 LOGGER = logging.getLogger(__name__)
@@ -21,14 +21,15 @@ class ContentPlayer(ABC):
         self.current_index = 0
     
     @abstractmethod
-    def play(self, playlist: PlaylistConfig) -> str:
+    def play(self, playlist: PlaylistConfig) -> Tuple[str, Optional[str]]:
         """Play content from playlist.
         
         Args:
             playlist: The playlist to play from.
             
         Returns:
-            The special key pressed, or empty string if completed normally.
+            Tuple of (pressed_key, video_url) where video_url is only for YouTube videos.
+            pressed_key is the special key pressed, or empty string if completed normally.
         """
         raise NotImplementedError
 
@@ -40,14 +41,14 @@ class YouTubePlayer(ContentPlayer):
         super().__init__(audio_player)
         self.youtube_auth = youtube_auth
     
-    def play(self, playlist: PlaylistConfig) -> str:
+    def play(self, playlist: PlaylistConfig) -> Tuple[str, Optional[str]]:
         """Play a YouTube video from the playlist."""
         items = self.youtube_auth.get_playlist_items(playlist.id)
         
         if not items:
             LOGGER.warning("Playlist is empty")
             self.audio_player.play_sound("error.wav")
-            return ""
+            return "", None
         
         idx = self._get_index(len(items), playlist.randomize)
         item = items[idx]
@@ -58,16 +59,16 @@ class YouTubePlayer(ContentPlayer):
         
         LOGGER.info("Now playing: %s", url)
         pressed_key = self.audio_player.stream_video_sound_cancellable(
-            url, SPECIAL_KEYS
+            url, SPECIAL_KEYS, NON_TERMINATING_KEYS
         )
         
         # Handle post-play actions
-        if pressed_key == "" and playlist.delete_after_play:
+        if (pressed_key == "" or SPECIAL_ACTIONS.get(pressed_key) == Action.SKIP_DELETE) and playlist.delete_after_play:
             self.youtube_auth.remove_playlist_item(playlist_item_id)
         else:
             self.current_index += 1
         
-        return pressed_key
+        return pressed_key, url
     
     @staticmethod
     def _get_index(size: int, randomize: bool) -> int:
@@ -80,7 +81,7 @@ class YouTubePlayer(ContentPlayer):
 class LocalPlayer(ContentPlayer):
     """Plays content from local filesystem."""
     
-    def play(self, playlist: PlaylistConfig) -> str:
+    def play(self, playlist: PlaylistConfig) -> Tuple[str, Optional[str]]:
         """Play an audio file from local directory."""
         folder_path = Path(playlist.id)
         
@@ -89,18 +90,18 @@ class LocalPlayer(ContentPlayer):
             if not items:
                 LOGGER.warning("Folder is empty: %s", folder_path)
                 self.audio_player.play_sound("error.wav")
-                return ""
+                return "", None
         except Exception as e:
             LOGGER.error("Failed to read folder %s: %s", folder_path, e)
             self.audio_player.play_sound("error.wav")
-            return ""
+            return "", None
         
         idx = self._get_index(len(items), playlist.randomize)
         selected_file = items[idx]
         
         LOGGER.info("Now playing: %s", selected_file)
         pressed_key = self.audio_player.play_sound_cancellable(
-            str(selected_file), SPECIAL_KEYS
+            str(selected_file), SPECIAL_KEYS, NON_TERMINATING_KEYS
         )
         
         # Handle post-play actions
@@ -113,7 +114,7 @@ class LocalPlayer(ContentPlayer):
         else:
             self.current_index += 1
         
-        return pressed_key
+        return pressed_key, None
     
     @staticmethod
     def _get_index(size: int, randomize: bool) -> int:

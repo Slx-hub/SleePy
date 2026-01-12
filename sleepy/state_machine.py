@@ -7,7 +7,8 @@ from typing import Optional
 
 from sleepy.audio import AudioPlayer
 from sleepy.config import ConfigManager
-from sleepy.constants import SPECIAL_KEYS, SPECIAL_ACTIONS, Action, State
+from sleepy.constants import SPECIAL_KEYS, SPECIAL_ACTIONS, Action, State, NON_TERMINATING_KEYS
+from sleepy.downloader import YouTubeDownloader
 from sleepy.input_handler import KeyboardPoller
 from sleepy.models import PlaylistConfig
 from sleepy.players import LocalPlayer, YouTubePlayer
@@ -30,8 +31,10 @@ class StateMachine:
         self.youtube_auth = youtube_auth
         self.current_state = State.INIT
         self.selected_playlist: Optional[PlaylistConfig] = None
+        self.current_video_url: Optional[str] = None
         self.youtube_player = YouTubePlayer(audio_player, youtube_auth)
         self.local_player = LocalPlayer(audio_player)
+        self.downloader = YouTubeDownloader(audio_player)
     
     def run(self) -> None:
         """Run the application state machine."""
@@ -107,8 +110,14 @@ class StateMachine:
             else self.youtube_player
         )
         
-        pressed_key = player.play(self.selected_playlist)
-        self._handle_action_key(pressed_key, State.PLAY)
+        try:
+            pressed_key, video_url = player.play(self.selected_playlist)
+            self.current_video_url = video_url
+            self._handle_action_key(pressed_key, State.PLAY)
+        finally:
+            # Reset video URL if download wasn't handled
+            if pressed_key != ',':
+                self.current_video_url = None
         
         if pressed_key == "" and self.selected_playlist.shutdown_after_play:
             self.current_state = State.WAIT
@@ -130,7 +139,8 @@ class StateMachine:
         LOGGER.info("Shutting down")
         self.audio_player.play_sound("shutdown.wav")
         try:
-            os.system("sudo shutdown -h now")
+            os.system("sudo shutdown -h +10")
+            self.audio_player.mute = True
         except Exception as e:
             LOGGER.error("Shutdown command failed: %s", e)
         self.current_state = State.QUIT
@@ -165,6 +175,12 @@ class StateMachine:
             return True
         elif action == Action.SKIP and next_state:
             self.current_state = next_state
+            return True
+        elif action == Action.DOWNLOAD:
+            if self.current_video_url:
+                self.downloader.download(self.current_video_url)
+                self.current_video_url = None
+            self.current_state = State.WAIT
             return True
         
         return False
