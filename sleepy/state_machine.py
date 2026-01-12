@@ -114,13 +114,12 @@ class StateMachine:
             pressed_key, video_url = player.play(self.selected_playlist)
             self.current_video_url = video_url
             self._handle_action_key(pressed_key, State.PLAY)
-        finally:
-            # Reset video URL if download wasn't handled
-            if pressed_key != ',':
-                self.current_video_url = None
-        
-        if pressed_key == "" and self.selected_playlist.shutdown_after_play:
-            self.current_state = State.WAIT
+
+            if pressed_key == "" and self.selected_playlist.shutdown_after_play:
+                self.current_state = State.WAIT
+        except Exception as e:
+            LOGGER.error("Failed to download (probably):", e)
+            self.current_state = State.QUIT
     
     def _state_wait(self) -> None:
         """Wait before shutdown."""
@@ -173,7 +172,7 @@ class StateMachine:
         elif action == Action.SELECT:
             self.current_state = State.SELECT
             return True
-        elif action == Action.SKIP and next_state:
+        elif (action == Action.SKIP or action == Action.SKIP_DELETE) and next_state:
             self.current_state = next_state
             return True
         elif action == Action.DOWNLOAD:

@@ -4,7 +4,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 from sleepy.constants import (
     AUDIO_SOUND_DIR,
@@ -73,11 +73,11 @@ class AudioPlayer:
             [self.APLAY_CMD, str(filepath)],
             action_keys,
             non_terminating_keys
-        )
+        )[0]
     
     def stream_video_sound_cancellable(
         self, url: str, action_keys: List[str], non_terminating_keys: List[str] = None
-    ) -> str:
+    ) -> Tuple[str, bool]:
         """Stream video audio, allowing cancellation via special keys.
         
         Args:
@@ -98,7 +98,7 @@ class AudioPlayer:
         )
     
     @staticmethod
-    def _run_cancellable_process(cmd: List[str], action_keys: List[str], non_terminating_keys: List[str] = None) -> str:
+    def _run_cancellable_process(cmd: List[str], action_keys: List[str], non_terminating_keys: List[str] = None) -> Tuple[str, bool]:
         """Run a process, allowing cancellation via special keys.
         
         Args:
@@ -112,7 +112,7 @@ class AudioPlayer:
         if non_terminating_keys is None:
             non_terminating_keys = []
 
-        non_terminating_action = ""
+        doDownload = False
 
         try:
             import os
@@ -125,7 +125,7 @@ class AudioPlayer:
             )
         except Exception as e:
             LOGGER.error("Failed to start process %s: %s", ' '.join(cmd), e)
-            return ""
+            return "", doDownload
         
         LOGGER.info(
             "Started process: %s. Waiting for keys: %s",
@@ -140,7 +140,7 @@ class AudioPlayer:
                         if  key in non_terminating_keys:
                             LOGGER.info("Key '%s' pressed (non-terminating).", key)
                             # Return the key but don't terminate the process
-                            non_terminating_action = key
+                            doDownload = True
                         elif key in action_keys:
                             LOGGER.info("Key '%s' pressed, terminating process.", key)
                             proc.terminate()
@@ -149,10 +149,10 @@ class AudioPlayer:
                             except subprocess.TimeoutExpired:
                                 LOGGER.warning("Process did not terminate, killing.")
                                 proc.kill()
-                            return key
+                            return key, doDownload
                     time.sleep(0.1)
         except Exception as e:
             LOGGER.error("Error while monitoring process: %s", e)
             proc.terminate()
         
-        return non_terminating_action
+        return non_terminating_action, doDownload

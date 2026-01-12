@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from sleepy.audio import AudioPlayer
-from sleepy.constants import SPECIAL_KEYS, NON_TERMINATING_KEYS
+from sleepy.constants import SPECIAL_KEYS, NON_TERMINATING_KEYS, SPECIAL_ACTIONS, Action
 from sleepy.models import PlaylistConfig
 
 LOGGER = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ class YouTubePlayer(ContentPlayer):
         url = f"https://www.youtube.com/watch?v={video_id}"
         
         LOGGER.info("Now playing: %s", url)
-        pressed_key = self.audio_player.stream_video_sound_cancellable(
+        pressed_key, doDownload = self.audio_player.stream_video_sound_cancellable(
             url, SPECIAL_KEYS, NON_TERMINATING_KEYS
         )
         
@@ -68,7 +68,10 @@ class YouTubePlayer(ContentPlayer):
         else:
             self.current_index += 1
         
-        return pressed_key, url
+        if doDownload:
+            return ',', url
+
+        return pressed_key, None
     
     @staticmethod
     def _get_index(size: int, randomize: bool) -> int:
