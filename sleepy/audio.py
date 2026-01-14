@@ -24,20 +24,26 @@ class AudioPlayer:
     RIGHT_ARROW = '\x1b[C'
     
     def __init__(self, mute: bool = False):
+        self.set_mute(mute)
+
+    def set_mute(self, mute: bool = True):
         self.mute = mute
-        self._set_system_volume()
+        if mute:
+            self._set_system_volume(0)
+        else
+            self._set_system_volume(AUDIO_VOLUME_LEVEL)
     
     @staticmethod
-    def _set_system_volume() -> None:
+    def _set_system_volume(volume) -> None:
         """Set system ALSA volume on startup."""
         try:
             subprocess.run(
-                ['amixer', 'sset', 'Master', f'{AUDIO_VOLUME_LEVEL}%'],
+                ['amixer', 'sset', 'Master', f'{volume}%'],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False
             )
-            LOGGER.info("System volume set to %d%%", AUDIO_VOLUME_LEVEL)
+            LOGGER.info("System volume set to %d%%", volume)
         except Exception as e:
             LOGGER.warning("Failed to set system volume: %s", e)
     

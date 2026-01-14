@@ -130,7 +130,7 @@ class StateMachine:
         self._handle_action_key(pressed_key, State.PLAY)
         
         if pressed_key == "":
-            self.audio_player.mute = True
+            self.audio_player.mute()
             self.current_state = State.SHUTDOWN
     
     def _state_shutdown(self) -> None:
@@ -138,8 +138,8 @@ class StateMachine:
         LOGGER.info("Shutting down")
         self.audio_player.play_sound("shutdown.wav")
         try:
-            os.system("sudo shutdown -h +10")
-            self.audio_player.mute = True
+            os.system("sudo shutdown -h +1")
+            self.audio_player.mute()
         except Exception as e:
             LOGGER.error("Shutdown command failed: %s", e)
         self.current_state = State.QUIT
