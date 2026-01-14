@@ -112,7 +112,7 @@ class StateMachine:
             if self.state.do_download and self.state.current_video_url:
                 self.downloader.download(self.state.current_video_url)
                 self.state.current_video_url = None
-                self.state.doDownload = False
+                self.state.do_download = False
 
             if not self._handle_action_key(pressed_key, State.PLAY) and self.state.selected_playlist.shutdown_after_play:
                 self.state.current_state = State.WAIT

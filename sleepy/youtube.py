@@ -11,6 +11,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 from sleepy.constants import YOUTUBE_SCOPE
+import time
 
 LOGGER = logging.getLogger(__name__)
 
@@ -145,8 +146,10 @@ class YouTubeAuthenticator:
         
         try:
             self.client.playlistItems().delete(id=item_id).execute()
+            # If execute() completes without exception, deletion succeeded
+            time.sleep(1)
             LOGGER.info("Removed playlist item: %s", item_id)
             return True
         except Exception as e:
             LOGGER.error("Failed to remove playlist item %s: %s", item_id, e)
-            return False
+            raise

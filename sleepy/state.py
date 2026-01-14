@@ -1,3 +1,13 @@
+import logging
+from typing import Optional
+
+from sleepy.constants import State
+from sleepy.models import PlaylistConfig
+
+
+LOGGER = logging.getLogger(__name__)
+
+
 class StateContainer:
     """Container for passing state around"""
     def __init__(self):

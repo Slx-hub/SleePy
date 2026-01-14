@@ -31,7 +31,7 @@ class AudioPlayer:
         self.mute = mute
         if mute:
             self._set_system_volume(0)
-        else
+        else:
             self._set_system_volume(AUDIO_VOLUME_LEVEL)
     
     @staticmethod
@@ -127,7 +127,7 @@ class AudioPlayer:
             )
         except Exception as e:
             LOGGER.error("Failed to start process %s: %s", ' '.join(cmd), e)
-            return "", doDownload
+            return ""
         
         LOGGER.info(
             "Started process: %s. Waiting for keys: %s",

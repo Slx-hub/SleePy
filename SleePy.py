@@ -13,7 +13,7 @@ from sleepy import (
     AudioPlayer,
     ConfigManager,
     StateMachine,
-    YouTubeAuthenticator,
+    YouTubeAuthenticator
 )
 
 
