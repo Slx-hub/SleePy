@@ -4,7 +4,8 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
+from sleepy.state import StateContainer
 
 from sleepy.constants import (
     AUDIO_SOUND_DIR,
@@ -79,32 +80,31 @@ class AudioPlayer:
             [self.APLAY_CMD, str(filepath)],
             action_keys,
             non_terminating_keys
-        )[0]
+        )
     
     def stream_video_sound_cancellable(
-        self, url: str, action_keys: List[str], non_terminating_keys: List[str] = None
-    ) -> Tuple[str, bool]:
+        self, state: StateContainer, action_keys: List[str], non_terminating_keys: List[str] = []) -> str:
         """Stream video audio, allowing cancellation via special keys.
         
         Args:
-            url: YouTube URL to stream.
+            state: Program state for some happy little side effects.
             action_keys: Keys that can cancel playback.
             non_terminating_keys: Keys that don't stop playback (default: empty list).
         """
-        if non_terminating_keys is None:
-            non_terminating_keys = []
+
         return self._run_cancellable_process(
             [
                 self.MPV_CMD,
                 '--no-video',
-                url
+                state.current_video_url
             ],
             action_keys,
-            non_terminating_keys
+            non_terminating_keys,
+            state
         )
     
     @staticmethod
-    def _run_cancellable_process(cmd: List[str], action_keys: List[str], non_terminating_keys: List[str] = None) -> Tuple[str, bool]:
+    def _run_cancellable_process(cmd: List[str], action_keys: List[str], non_terminating_keys: List[str] = [], state: StateContainer = None) -> str:
         """Run a process, allowing cancellation via special keys.
         
         Args:
@@ -115,10 +115,6 @@ class AudioPlayer:
         Returns:
             The key pressed to cancel, or empty string if process completed normally.
         """
-        if non_terminating_keys is None:
-            non_terminating_keys = []
-
-        doDownload = False
 
         try:
             import os
@@ -145,8 +141,8 @@ class AudioPlayer:
                         key = kp.getch()
                         if  key in non_terminating_keys:
                             LOGGER.info("Key '%s' pressed (non-terminating).", key)
-                            # Return the key but don't terminate the process
-                            doDownload = True
+                            if state:
+                                state.do_download = True
                         elif key in action_keys:
                             LOGGER.info("Key '%s' pressed, terminating process.", key)
                             proc.terminate()
@@ -155,10 +151,10 @@ class AudioPlayer:
                             except subprocess.TimeoutExpired:
                                 LOGGER.warning("Process did not terminate, killing.")
                                 proc.kill()
-                            return key, doDownload
+                            return key
                     time.sleep(0.1)
         except Exception as e:
             LOGGER.error("Error while monitoring process: %s", e)
             proc.terminate()
         
-        return non_terminating_action, doDownload
+        return ""

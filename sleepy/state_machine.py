@@ -5,9 +5,10 @@ import os
 import time
 from typing import Optional
 
+from sleepy.state import StateContainer
 from sleepy.audio import AudioPlayer
 from sleepy.config import ConfigManager
-from sleepy.constants import SPECIAL_KEYS, SPECIAL_ACTIONS, Action, State, NON_TERMINATING_KEYS
+from sleepy.constants import SPECIAL_KEYS, SPECIAL_ACTIONS, Action, State
 from sleepy.downloader import YouTubeDownloader
 from sleepy.input_handler import KeyboardPoller
 from sleepy.models import PlaylistConfig
@@ -29,38 +30,34 @@ class StateMachine:
         self.config = config
         self.audio_player = audio_player
         self.youtube_auth = youtube_auth
-        self.current_state = State.INIT
-        self.selected_playlist: Optional[PlaylistConfig] = None
-        self.current_video_url: Optional[str] = None
         self.youtube_player = YouTubePlayer(audio_player, youtube_auth)
         self.local_player = LocalPlayer(audio_player)
         self.downloader = YouTubeDownloader(audio_player)
+        self.state = StateContainer()
     
     def run(self) -> None:
         """Run the application state machine."""
         try:
-            while self.current_state != State.QUIT:
+            while self.state.current_state != State.QUIT:
                 try:
                     self._execute_state()
                 except Exception as e:
-                    LOGGER.error("Error in state %s: %s", self.current_state, e)
-                    self.current_state = State.QUIT
+                    LOGGER.error("Error in state %s: %s", self.state.current_state, e)
+                    self.state.current_state = State.QUIT
         except KeyboardInterrupt:
             LOGGER.info("Interrupted by user")
-        finally:
-            self._state_quit()
     
     def _execute_state(self) -> None:
         """Execute the current state's logic."""
-        if self.current_state == State.INIT:
+        if self.state.current_state == State.INIT:
             self._state_init()
-        elif self.current_state == State.SELECT:
+        elif self.state.current_state == State.SELECT:
             self._state_select()
-        elif self.current_state == State.PLAY:
+        elif self.state.current_state == State.PLAY:
             self._state_play()
-        elif self.current_state == State.WAIT:
+        elif self.state.current_state == State.WAIT:
             self._state_wait()
-        elif self.current_state == State.SHUTDOWN:
+        elif self.state.current_state == State.SHUTDOWN:
             self._state_shutdown()
     
     def _state_init(self) -> None:
@@ -70,8 +67,8 @@ class StateMachine:
         self.audio_player.play_sound("up.wav")
         
         self.youtube_auth.authenticate()
-        self.current_state = State.SELECT
-        LOGGER.info("State changed to %s", self.current_state)
+        self.state.current_state = State.SELECT
+        
     
     def _state_select(self) -> None:
         """Select a playlist."""
@@ -80,46 +77,49 @@ class StateMachine:
         self.local_player.current_index = 0
         
         self.audio_player.play_sound("ping.wav")
-        self.selected_playlist = None
+        self.state.selected_playlist = None
         
-        while not self.selected_playlist:
+        while not self.state.selected_playlist:
             key = self._wait_for_key()
             
             if key in self.config.playlists:
-                self.selected_playlist = self.config.playlists[key]
-                LOGGER.info("Selected playlist: %s", self.selected_playlist.name)
+                self.state.selected_playlist = self.config.playlists[key]
+                LOGGER.info("Selected playlist: %s", self.state.selected_playlist.name)
             elif self._handle_action_key(key, State.SELECT):
                 return
             else:
                 LOGGER.warning("Invalid key: %s", key)
                 self.audio_player.play_sound("error.wav")
         
-        self.current_state = State.PLAY
+        self.state.current_state = State.PLAY
         self.audio_player.play_sound("ok.wav")
-        LOGGER.info("State changed to %s", self.current_state)
     
     def _state_play(self) -> None:
         """Play content from selected playlist."""
-        if not self.selected_playlist:
+        if not self.state.selected_playlist:
             LOGGER.error("No playlist selected")
-            self.current_state = State.SELECT
+            self.state.current_state = State.SELECT
             return
         
         player = (
-            self.local_player if self.selected_playlist.is_local()
+            self.local_player if self.state.selected_playlist.is_local()
             else self.youtube_player
         )
         
         try:
-            pressed_key, video_url = player.play(self.selected_playlist)
-            self.current_video_url = video_url
-            self._handle_action_key(pressed_key, State.PLAY)
+            pressed_key = player.play(self.state)
 
-            if pressed_key == "" and self.selected_playlist.shutdown_after_play:
-                self.current_state = State.WAIT
+            if self.state.do_download and self.state.current_video_url:
+                self.downloader.download(self.state.current_video_url)
+                self.state.current_video_url = None
+                self.state.doDownload = False
+
+            if not self._handle_action_key(pressed_key, State.PLAY) and self.state.selected_playlist.shutdown_after_play:
+                self.state.current_state = State.WAIT
+
         except Exception as e:
-            LOGGER.error("Failed to download (probably):", e)
-            self.current_state = State.QUIT
+            LOGGER.error("Error during PLAY:", e)
+            self.state.current_state = State.QUIT
     
     def _state_wait(self) -> None:
         """Wait before shutdown."""
@@ -127,11 +127,9 @@ class StateMachine:
         pressed_key = self.audio_player.play_sound_cancellable(
             "./sounds/wait.wav", SPECIAL_KEYS
         )
-        self._handle_action_key(pressed_key, State.PLAY)
-        
-        if pressed_key == "":
+        if not self._handle_action_key(pressed_key, State.PLAY):
             self.audio_player.mute()
-            self.current_state = State.SHUTDOWN
+            self.state.current_state = State.SHUTDOWN
     
     def _state_shutdown(self) -> None:
         """Shutdown the system."""
@@ -142,7 +140,7 @@ class StateMachine:
             self.audio_player.mute()
         except Exception as e:
             LOGGER.error("Shutdown command failed: %s", e)
-        self.current_state = State.QUIT
+        self.state.current_state = State.QUIT
     
     def _state_quit(self) -> None:
         """Exit the application."""
@@ -154,7 +152,7 @@ class StateMachine:
         
         Args:
             key: The key that was pressed.
-            next_state: The state to transition to on SKIP action.
+            next_state: The state to transition to on SKIP or DOWNLOAD action.
             
         Returns:
             True if the key was handled, False otherwise.
@@ -164,22 +162,16 @@ class StateMachine:
             return False
         
         if action == Action.SHUTDOWN:
-            self.current_state = State.SHUTDOWN
+            self.state.current_state = State.SHUTDOWN
             return True
         elif action == Action.QUIT:
-            self.current_state = State.QUIT
+            self.state.current_state = State.QUIT
             return True
         elif action == Action.SELECT:
-            self.current_state = State.SELECT
+            self.state.current_state = State.SELECT
             return True
         elif (action == Action.SKIP or action == Action.SKIP_DELETE) and next_state:
-            self.current_state = next_state
-            return True
-        elif action == Action.DOWNLOAD:
-            if self.current_video_url:
-                self.downloader.download(self.current_video_url)
-                self.current_video_url = None
-            self.current_state = State.WAIT
+            self.state.current_state = next_state
             return True
         
         return False
