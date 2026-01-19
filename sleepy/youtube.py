@@ -204,17 +204,34 @@ class YouTubeAuthenticator:
             return None
         
         try:
+            # Calculate page number (50 items per page)
+            page_num = index // 50
+            index_in_page = index % 50
+            
             request = self.client.playlistItems().list(
                 part="snippet,contentDetails",
                 playlistId=playlist_id,
-                maxResults=1,
-                startIndex=index
+                maxResults=50
             )
+            
+            # Paginate to the correct page
+            for _ in range(page_num):
+                response = request.execute()
+                page_token = response.get('nextPageToken')
+                if not page_token:
+                    return None
+                request = self.client.playlistItems().list(
+                    part="snippet,contentDetails",
+                    playlistId=playlist_id,
+                    maxResults=50,
+                    pageToken=page_token
+                )
+            
             response = request.execute()
             items = response.get('items', [])
-            if items:
+            if len(items) > index_in_page:
                 LOGGER.info("Fetched item at index %d from playlist", index)
-                return items[0]
+                return items[index_in_page]
             return None
         except Exception as e:
             LOGGER.error("Failed to fetch playlist item at index %d: %s", index, e)
