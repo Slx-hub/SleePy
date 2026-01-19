@@ -42,21 +42,35 @@ class YouTubePlayer(ContentPlayer):
     
     def play(self, state: StateContainer) -> str:
         """Play a YouTube video from the playlist."""
-        items = self.youtube_auth.get_playlist_items(state.selected_playlist.id)
+        # Get the count of items in the playlist
+        item_count = self.youtube_auth.get_playlist_item_count(state.selected_playlist.id)
         
-        if not items:
+        if not item_count or item_count == 0:
             LOGGER.warning("Playlist is empty")
             self.audio_player.play_sound("error.wav")
             return ""
         
-        idx = self._get_index(len(items), state.selected_playlist.randomize)
-        item = items[idx]
+        # Choose the index (first or random)
+        idx = self._get_index(item_count, state.selected_playlist.randomize)
+        
+        # Fetch only the specific item at this index
+        item = self.youtube_auth.get_playlist_item_by_index(state.selected_playlist.id, idx)
+        
+        if not item:
+            LOGGER.warning("Failed to fetch playlist item at index %d", idx)
+            self.audio_player.play_sound("error.wav")
+            return ""
         
         video_id = item['contentDetails']['videoId']
         playlist_item_id = item['id']
         state.current_video_url = f"https://www.youtube.com/watch?v={video_id}"
         
-        LOGGER.info("Now playing: %s", state.current_video_url)
+        # Get title from snippet or fetch from API if needed
+        title = item.get('snippet', {}).get('title')
+        if not title:
+            title = self.youtube_auth.get_video_title(video_id)
+        
+        LOGGER.info("Now playing item %d: %s (%s)", idx, title, video_id)
         pressed_key = self.audio_player.stream_video_sound_cancellable(
             state, SPECIAL_KEYS, NON_TERMINATING_KEYS
         )

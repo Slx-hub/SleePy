@@ -131,6 +131,95 @@ class YouTubeAuthenticator:
             LOGGER.error("Failed to fetch playlist items: %s", e)
             return None
     
+    def get_video_title(self, video_id: str) -> Optional[str]:
+        """Get the title of a YouTube video by ID.
+        
+        Args:
+            video_id: YouTube video ID.
+            
+        Returns:
+            The video title or None if failed.
+        """
+        if not self.client:
+            LOGGER.error("YouTube client not initialized")
+            return None
+        
+        try:
+            request = self.client.videos().list(
+                part="snippet",
+                id=video_id
+            )
+            response = request.execute()
+            videos = response.get('items', [])
+            if videos:
+                title = videos[0]['snippet']['title']
+                LOGGER.info("Fetched video title for %s: %s", video_id, title)
+                return title
+            return None
+        except Exception as e:
+            LOGGER.error("Failed to fetch video title for %s: %s", video_id, e)
+            return None
+    
+    def get_playlist_item_count(self, playlist_id: str) -> Optional[int]:
+        """Get the count of items in a YouTube playlist.
+        
+        Args:
+            playlist_id: YouTube playlist ID.
+            
+        Returns:
+            Count of items in the playlist, or None if failed.
+        """
+        if not self.client:
+            LOGGER.error("YouTube client not initialized")
+            return None
+        
+        try:
+            request = self.client.playlists().list(
+                part="contentDetails",
+                id=playlist_id
+            )
+            response = request.execute()
+            playlists = response.get('items', [])
+            if playlists:
+                count = playlists[0]['contentDetails']['itemCount']
+                LOGGER.info("Playlist %s has %d items", playlist_id, count)
+                return count
+            return None
+        except Exception as e:
+            LOGGER.error("Failed to fetch playlist count: %s", e)
+            return None
+    
+    def get_playlist_item_by_index(self, playlist_id: str, index: int) -> Optional[Dict]:
+        """Get a specific item from a YouTube playlist by index.
+        
+        Args:
+            playlist_id: YouTube playlist ID.
+            index: Zero-based index of the item to fetch.
+            
+        Returns:
+            The playlist item or None if failed.
+        """
+        if not self.client:
+            LOGGER.error("YouTube client not initialized")
+            return None
+        
+        try:
+            request = self.client.playlistItems().list(
+                part="snippet,contentDetails",
+                playlistId=playlist_id,
+                maxResults=1,
+                startIndex=index
+            )
+            response = request.execute()
+            items = response.get('items', [])
+            if items:
+                LOGGER.info("Fetched item at index %d from playlist", index)
+                return items[0]
+            return None
+        except Exception as e:
+            LOGGER.error("Failed to fetch playlist item at index %d: %s", index, e)
+            return None
+    
     def remove_playlist_item(self, item_id: str) -> bool:
         """Remove an item from a YouTube playlist.
         
