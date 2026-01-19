@@ -47,7 +47,7 @@ class YouTubePlayer(ContentPlayer):
         if not items:
             LOGGER.warning("Playlist is empty")
             self.audio_player.play_sound("error.wav")
-            return "", None
+            return ""
         
         idx = self._get_index(len(items), state.selected_playlist.randomize)
         item = items[idx]
@@ -82,20 +82,20 @@ class LocalPlayer(ContentPlayer):
     
     def play(self, state: StateContainer) -> str:
         """Play an audio file from local directory."""
-        folder_path = Path(playlist.id)
+        folder_path = Path(state.selected_playlist.id)
         
         try:
             items = list(folder_path.iterdir())
             if not items:
                 LOGGER.warning("Folder is empty: %s", folder_path)
                 self.audio_player.play_sound("error.wav")
-                return "", None
+                return ""
         except Exception as e:
             LOGGER.error("Failed to read folder %s: %s", folder_path, e)
             self.audio_player.play_sound("error.wav")
-            return "", None
+            return ""
         
-        idx = self._get_index(len(items), playlist.randomize)
+        idx = self._get_index(len(items), state.selected_playlist.randomize)
         selected_file = items[idx]
         
         LOGGER.info("Now playing: %s", selected_file)
@@ -104,7 +104,7 @@ class LocalPlayer(ContentPlayer):
         )
         
         # Handle post-play actions
-        if pressed_key == "" and playlist.delete_after_play:
+        if pressed_key == "" and state.selected_playlist.delete_after_play:
             try:
                 selected_file.unlink()
                 LOGGER.info("Deleted file: %s", selected_file)
@@ -113,7 +113,7 @@ class LocalPlayer(ContentPlayer):
         else:
             self.current_index += 1
         
-        return pressed_key, None
+        return pressed_key
     
     @staticmethod
     def _get_index(size: int, randomize: bool) -> int:

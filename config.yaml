@@ -24,9 +24,15 @@ Playlists:
     delete_after_play: false
     shutdown_after_play: true
     randomize: true
-  '9':
+  '5':
     name: 'random-music'
     id: 'PLd9auH4JIHvupoMgW5YfOjqtj6Lih0MKw'
     delete_after_play: false
+    shutdown_after_play: false
+    randomize: true
+  '9':
+    name: 'debug-playlist'
+    id: 'PLd9auH4JIHvupoMgW5YfOjqtj6Lih0MKw'
+    delete_after_play: false
     shutdown_after_play: true
-    randomize: false
+    randomize: true

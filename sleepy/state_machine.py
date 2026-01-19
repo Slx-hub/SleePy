@@ -2,6 +2,7 @@
 
 import logging
 import os
+import subprocess
 import time
 from typing import Optional
 
@@ -128,7 +129,7 @@ class StateMachine:
             "./sounds/wait.wav", SPECIAL_KEYS
         )
         if not self._handle_action_key(pressed_key, State.PLAY):
-            self.audio_player.mute()
+            self.audio_player.set_mute(True)
             self.state.current_state = State.SHUTDOWN
     
     def _state_shutdown(self) -> None:
@@ -136,8 +137,8 @@ class StateMachine:
         LOGGER.info("Shutting down")
         self.audio_player.play_sound("shutdown.wav")
         try:
-            os.system("sudo shutdown -h +1")
-            self.audio_player.mute()
+            subprocess.Popen(["sudo", "shutdown", "-h", "+1"])
+            self.audio_player.set_mute(True)
         except Exception as e:
             LOGGER.error("Shutdown command failed: %s", e)
         self.state.current_state = State.QUIT
