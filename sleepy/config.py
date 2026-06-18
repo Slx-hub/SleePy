@@ -52,7 +52,9 @@ class ConfigManager:
                         id=data.get('id', ''),
                         delete_after_play=data.get('delete_after_play', False),
                         shutdown_after_play=data.get('shutdown_after_play', False),
-                        randomize=data.get('randomize', False)
+                        randomize=data.get('randomize', False),
+                        delete_on_skip=data.get('delete_on_skip', False),
+                        move_to_asmr_on_dot=data.get('move_to_asmr_on_dot', False),
                     )
                     if not playlist.id:
                         LOGGER.warning("Playlist '%s' has no ID, skipping", key)

@@ -30,6 +30,14 @@ Playlists:
     delete_after_play: false
     shutdown_after_play: false
     randomize: true
+  '7':
+    name: 'local-input'
+    id: './local/input'
+    delete_after_play: false
+    shutdown_after_play: true
+    randomize: true
+    delete_on_skip: true
+    move_to_asmr_on_dot: true
   '9':
     name: 'debug-playlist'
     id: 'PLd9auH4JIHvupoMgW5YfOjqtj6Lih0MKw'

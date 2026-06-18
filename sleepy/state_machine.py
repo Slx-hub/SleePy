@@ -1,18 +1,18 @@
 """State machine implementation."""
 
 import logging
-import os
+import shutil
 import subprocess
 import time
+from pathlib import Path
 from typing import Optional
 
 from sleepy.state import StateContainer
 from sleepy.audio import AudioPlayer
 from sleepy.config import ConfigManager
-from sleepy.constants import SPECIAL_KEYS, SPECIAL_ACTIONS, Action, State
+from sleepy.constants import SPECIAL_KEYS, SPECIAL_ACTIONS, Action, State, LOCAL_ASMR_DIR
 from sleepy.downloader import YouTubeDownloader
 from sleepy.input_handler import KeyboardPoller
-from sleepy.models import PlaylistConfig
 from sleepy.players import LocalPlayer, YouTubePlayer
 from sleepy.youtube import YouTubeAuthenticator
 
@@ -67,7 +67,7 @@ class StateMachine:
         self.config.load()
         self.audio_player.play_sound("up.wav")
         
-        self.youtube_auth.authenticate()
+        # self.youtube_auth.authenticate()
         self.state.current_state = State.SELECT
         
     
@@ -109,12 +109,7 @@ class StateMachine:
         
         try:
             pressed_key = player.play(self.state)
-
-            if self.state.do_download and self.state.current_video_url:
-                self.downloader.download(self.state.current_video_url)
-                self.state.current_video_url = None
-                self.state.do_download = False
-
+            self._handle_dot_action()
             if not self._handle_action_key(pressed_key, State.PLAY) and self.state.selected_playlist.shutdown_after_play:
                 self.state.current_state = State.WAIT
 
@@ -161,7 +156,7 @@ class StateMachine:
         action = SPECIAL_ACTIONS.get(key)
         if not action:
             return False
-        
+
         if action == Action.SHUTDOWN:
             self.state.current_state = State.SHUTDOWN
             return True
@@ -174,7 +169,7 @@ class StateMachine:
         elif (action == Action.SKIP or action == Action.SKIP_DELETE) and next_state:
             self.state.current_state = next_state
             return True
-        
+
         return False
     
     @staticmethod
@@ -185,3 +180,28 @@ class StateMachine:
                 if kp.kbhit():
                     return kp.getch()
                 time.sleep(0.1)
+
+    def _handle_dot_action(self) -> None:
+        """Handle the deferred dot-key action after a track finishes."""
+        if not self.state.do_download:
+            return
+        self.state.do_download = False
+        if (self.state.selected_playlist
+                and self.state.selected_playlist.move_to_asmr_on_dot
+                and self.local_player.current_file is not None):
+            self._move_to_asmr(self.local_player.current_file)
+            self.local_player.current_file = None
+        elif self.state.current_video_url:
+            self.downloader.download(self.state.current_video_url)
+            self.state.current_video_url = None
+
+    def _move_to_asmr(self, file_path: Path) -> None:
+        """Move a file to the local ASMR directory."""
+        dest_dir = Path(LOCAL_ASMR_DIR)
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / file_path.name
+            shutil.move(str(file_path), str(dest))
+            LOGGER.info("Moved %s -> %s", file_path, dest)
+        except Exception as e:
+            LOGGER.error("Failed to move %s to %s: %s", file_path, dest_dir, e)

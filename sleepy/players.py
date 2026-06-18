@@ -4,6 +4,7 @@ import logging
 import random
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Optional
 
 from sleepy.audio import AudioPlayer
 from sleepy.constants import SPECIAL_KEYS, NON_TERMINATING_KEYS, SPECIAL_ACTIONS, Action
@@ -93,7 +94,11 @@ class YouTubePlayer(ContentPlayer):
 
 class LocalPlayer(ContentPlayer):
     """Plays content from local filesystem."""
-    
+
+    def __init__(self, audio_player: AudioPlayer):
+        super().__init__(audio_player)
+        self.current_file: Optional[Path] = None
+
     def play(self, state: StateContainer) -> str:
         """Play an audio file from local directory."""
         folder_path = Path(state.selected_playlist.id)
@@ -111,14 +116,16 @@ class LocalPlayer(ContentPlayer):
         
         idx = self._get_index(len(items), state.selected_playlist.randomize)
         selected_file = items[idx]
-        
+        self.current_file = selected_file
+
         LOGGER.info("Now playing: %s", selected_file)
         pressed_key = self.audio_player.play_sound_cancellable(
             str(selected_file), SPECIAL_KEYS, NON_TERMINATING_KEYS
         )
         
         # Handle post-play actions
-        if pressed_key == "" and state.selected_playlist.delete_after_play:
+        if (pressed_key == '-' and state.selected_playlist.delete_on_skip
+                or pressed_key == "" and state.selected_playlist.delete_after_play):
             try:
                 selected_file.unlink()
                 LOGGER.info("Deleted file: %s", selected_file)
@@ -126,7 +133,7 @@ class LocalPlayer(ContentPlayer):
                 LOGGER.error("Failed to delete file %s: %s", selected_file, e)
         else:
             self.current_index += 1
-        
+
         return pressed_key
     
     @staticmethod
