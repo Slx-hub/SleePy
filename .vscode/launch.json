@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "WishingTable: Start server",
+      "type": "PowerShell",
+      "request": "launch",
+      "script": "${workspaceFolder}/wishingTable/start.ps1",
+      "cwd": "${workspaceFolder}/wishingTable",
+      "preLaunchTask": null,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true
+      }
+    }
+  ]
+}

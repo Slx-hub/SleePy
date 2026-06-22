@@ -2,4 +2,5 @@
 *.pickle
 cred.json
 /local/*
+.venv/
 __pycache__
