@@ -124,7 +124,7 @@ class LocalPlayer(ContentPlayer):
         )
         
         # Handle post-play actions
-        if (pressed_key == '-' and state.selected_playlist.delete_on_skip
+        if (SPECIAL_ACTIONS.get(pressed_key) == Action.SKIP_DELETE and state.selected_playlist.delete_on_skip
                 or pressed_key == "" and state.selected_playlist.delete_after_play):
             try:
                 selected_file.unlink()
