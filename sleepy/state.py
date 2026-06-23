@@ -15,6 +15,7 @@ class StateContainer:
         self.selected_playlist: Optional[PlaylistConfig] = None
 
         self.current_video_url: Optional[str] = None
+        self.current_audio_file: Optional[str] = None
         self.do_download: bool = False
 
     @property
@@ -43,6 +44,15 @@ class StateContainer:
     def current_video_url(self, value):
         self._current_video_url = value
         LOGGER.debug("Video URL changed to %s", self.current_video_url)
+
+    @property
+    def current_audio_file(self):
+        return self._current_audio_file
+
+    @current_audio_file.setter
+    def current_audio_file(self, value):
+        self._current_audio_file = value
+        LOGGER.debug("Current audio file changed to %s", self.current_audio_file)
 
     @property
     def do_download(self):
