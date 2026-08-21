@@ -32,6 +32,11 @@ _YOUTUBE_RE = re.compile(r"^https://(www\.)?youtube\.com/watch\?")
 _SCP_DEST = "SleePy:~/Music/local/input/"
 _DOWNLOAD_TIMEOUT = 600   # seconds for yt-dlp
 _SCP_TIMEOUT = 120        # seconds for scp
+_FFMPEG_TIMEOUT = 300     # seconds for the trim pass
+_MAX_START_SECONDS = 86400
+# ~0.5 s of 44.1 kHz stereo PCM. Below this the cut ate the whole file, which
+# means the start offset landed past the end of the video.
+_MIN_WAV_BYTES = 100_000
 
 # Prepend common choco-installed tool paths so yt-dlp subprocess finds node + ffmpeg
 _EXTRA_PATHS = [
@@ -45,6 +50,7 @@ _ENV["PATH"] = os.pathsep.join(_EXTRA_PATHS) + os.pathsep + _ENV.get("PATH", "")
 
 class DownloadRequest(BaseModel):
     url: str
+    start_seconds: float = 0.0
 
     @field_validator("url")
     @classmethod
@@ -53,12 +59,74 @@ class DownloadRequest(BaseModel):
             raise ValueError("Only YouTube watch URLs are accepted")
         return v
 
+    @field_validator("start_seconds")
+    @classmethod
+    def must_be_a_sane_offset(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("start_seconds must not be negative")
+        if v > _MAX_START_SECONDS:
+            raise ValueError("start_seconds is unreasonably large")
+        return v
+
+
+def _trim_wav(file_path: Path, start_seconds: float) -> None:
+    """Drop the first `start_seconds` of a WAV file, in place.
+
+    PCM is constant-bitrate, so an input seek plus a stream copy is sample-exact
+    and needs no re-encode. The trimmed file takes over the original name so the
+    clean video title is what lands on the Pi.
+    """
+    trimmed = file_path.with_suffix(".trimmed.wav")
+    LOGGER.info(f"Trimming {start_seconds:g}s off the start of {file_path.name}")
+
+    ff = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-ss", f"{start_seconds:.3f}",
+            "-i", str(file_path),
+            "-c", "copy",
+            str(trimmed),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=_FFMPEG_TIMEOUT,
+        env=_ENV,
+    )
+
+    LOGGER.debug(f"ffmpeg stderr: {ff.stderr}")
+    LOGGER.debug(f"ffmpeg returncode: {ff.returncode}")
+
+    if ff.returncode != 0:
+        trimmed.unlink(missing_ok=True)
+        LOGGER.error(f"ffmpeg trim failed: {ff.stderr.strip()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Trim failed: {ff.stderr.strip()[:200]}"
+        )
+
+    size = trimmed.stat().st_size if trimmed.exists() else 0
+    if size < _MIN_WAV_BYTES:
+        trimmed.unlink(missing_ok=True)
+        LOGGER.error(f"Trim left only {size} bytes of {file_path.name}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Nothing left after cutting {start_seconds:g}s "
+                   f"— is the start time past the end of the video?"
+        )
+
+    trimmed.replace(file_path)
+    LOGGER.info(f"Trimmed {file_path.name} down to {size} bytes")
+
 
 @app.post("/download")
 def download(req: DownloadRequest) -> dict:
     job_dir = Path(tempfile.gettempdir()) / f"sleepy_{uuid.uuid4().hex}"
     job_dir.mkdir()
-    LOGGER.info(f"Download request for: {req.url}")
+    LOGGER.info(f"Download request for: {req.url}"
+                f"{f' (cut first {req.start_seconds:g}s)' if req.start_seconds > 0 else ''}")
     LOGGER.info(f"Working dir: {job_dir}")
 
     try:
@@ -104,6 +172,9 @@ def download(req: DownloadRequest) -> dict:
 
         transferred = []
         for file_path in wav_files:
+            if req.start_seconds > 0:
+                _trim_wav(file_path, req.start_seconds)
+
             LOGGER.info(f"Transferring {file_path} to {_SCP_DEST}")
             scp = subprocess.run(
                 ["scp", str(file_path), _SCP_DEST],
@@ -123,7 +194,12 @@ def download(req: DownloadRequest) -> dict:
             LOGGER.info(f"Transferred: {file_path.name}")
 
         LOGGER.info(f"Success: {len(transferred)} file(s) transferred")
-        return {"status": "ok", "file": transferred[0], "files": transferred}
+        return {
+            "status": "ok",
+            "file": transferred[0],
+            "files": transferred,
+            "start_seconds": req.start_seconds,
+        }
 
     except HTTPException:
         raise
