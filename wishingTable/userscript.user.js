@@ -18,24 +18,20 @@
   const btn = document.createElement('button');
   btn.id = 'sleepy-dl-btn';
   Object.assign(btn.style, {
-    position:   'fixed',
-    bottom:     '80px',
-    right:      '24px',
-    zIndex:     '9999',
-    padding:    '10px 18px',
+    padding:      '10px 18px',
     borderRadius: '20px',
-    border:     'none',
-    background: '#ff0000',
-    color:      '#fff',
-    fontFamily: 'Roboto, Arial, sans-serif',
-    fontSize:   '14px',
-    fontWeight: '600',
-    cursor:     'pointer',
-    boxShadow:  '0 2px 8px rgba(0,0,0,0.45)',
-    display:    'none',
-    userSelect: 'none',
+    border:       'none',
+    background:   '#ff0000',
+    color:        '#fff',
+    fontFamily:   'Roboto, Arial, sans-serif',
+    fontSize:     '14px',
+    fontWeight:   '600',
+    cursor:       'pointer',
+    marginLeft:   '8px',
+    alignSelf:    'center',
+    userSelect:   'none',
+    flexShrink:   '0',
   });
-  document.body.appendChild(btn);
 
   // ── State helpers ────────────────────────────────────────────────────────────
   const STATES = {
@@ -56,12 +52,38 @@
     setTimeout(() => setState('idle'), ms);
   }
 
+  // ── Injection ────────────────────────────────────────────────────────────────
+  let observer = null;
+
+  function inject() {
+    const anchor = document.querySelector('ytd-subscribe-button-renderer')?.parentElement;
+    if (!anchor || anchor.contains(btn)) return false;
+    anchor.insertAdjacentElement('afterend', btn);
+    return true;
+  }
+
+  function waitAndInject() {
+    if (inject()) return;
+    if (observer) observer.disconnect();
+    observer = new MutationObserver(() => {
+      if (inject()) {
+        observer.disconnect();
+        observer = null;
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   // ── Visibility ───────────────────────────────────────────────────────────────
   function checkPage() {
     const onWatch = location.pathname === '/watch' &&
                     new URLSearchParams(location.search).has('v');
-    btn.style.display = onWatch ? 'block' : 'none';
-    if (onWatch) setState('idle');
+    if (!onWatch) {
+      btn.remove();
+      return;
+    }
+    setState('idle');
+    waitAndInject();
   }
 
   // ── Click handler ────────────────────────────────────────────────────────────
@@ -79,7 +101,10 @@
         try {
           const json = JSON.parse(res.responseText);
           if (json.status === 'ok') {
-            setState('success', `✓ ${json.file}`);
+            const label = json.files?.length > 1
+              ? `✓ ${json.files.length} files`
+              : `✓ ${json.file}`;
+            setState('success', label);
             resetAfter(6000);
           } else {
             const detail = json.detail ?? 'Unknown error';

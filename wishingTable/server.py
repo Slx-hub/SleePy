@@ -102,26 +102,28 @@ def download(req: DownloadRequest) -> dict:
             LOGGER.error(f"No WAV files found in {job_dir}")
             raise HTTPException(status_code=500, detail="yt-dlp finished but no .wav file was found")
 
-        file_path = wav_files[0]
-        LOGGER.info(f"Transferring {file_path} to {_SCP_DEST}")
+        transferred = []
+        for file_path in wav_files:
+            LOGGER.info(f"Transferring {file_path} to {_SCP_DEST}")
+            scp = subprocess.run(
+                ["scp", str(file_path), _SCP_DEST],
+                capture_output=True,
+                text=True,
+                timeout=_SCP_TIMEOUT,
+            )
+            LOGGER.debug(f"scp stdout: {scp.stdout}")
+            LOGGER.debug(f"scp stderr: {scp.stderr}")
+            LOGGER.debug(f"scp returncode: {scp.returncode}")
 
-        scp = subprocess.run(
-            ["scp", str(file_path), _SCP_DEST],
-            capture_output=True,
-            text=True,
-            timeout=_SCP_TIMEOUT,
-        )
+            if scp.returncode != 0:
+                LOGGER.error(f"scp failed for {file_path.name}: {scp.stderr.strip()}")
+                raise HTTPException(status_code=500, detail=f"{file_path.name}: {scp.stderr.strip()}")
 
-        LOGGER.debug(f"scp stdout: {scp.stdout}")
-        LOGGER.debug(f"scp stderr: {scp.stderr}")
-        LOGGER.debug(f"scp returncode: {scp.returncode}")
+            transferred.append(file_path.name)
+            LOGGER.info(f"Transferred: {file_path.name}")
 
-        if scp.returncode != 0:
-            LOGGER.error(f"scp failed: {scp.stderr.strip()}")
-            raise HTTPException(status_code=500, detail=scp.stderr.strip())
-
-        LOGGER.info(f"Success: {file_path.name} downloaded and transferred")
-        return {"status": "ok", "file": file_path.name}
+        LOGGER.info(f"Success: {len(transferred)} file(s) transferred")
+        return {"status": "ok", "file": transferred[0], "files": transferred}
 
     except HTTPException:
         raise
