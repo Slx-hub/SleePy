@@ -119,12 +119,13 @@ class LocalPlayer(ContentPlayer):
         self.current_file = selected_file
 
         LOGGER.info("Now playing: %s", selected_file)
+        state.current_audio_file = str(selected_file)
         pressed_key = self.audio_player.play_sound_cancellable(
-            str(selected_file), SPECIAL_KEYS, NON_TERMINATING_KEYS
+            state, SPECIAL_KEYS, NON_TERMINATING_KEYS
         )
         
         # Handle post-play actions
-        if (pressed_key == '-' and state.selected_playlist.delete_on_skip
+        if (SPECIAL_ACTIONS.get(pressed_key) == Action.SKIP_DELETE and state.selected_playlist.delete_on_skip
                 or pressed_key == "" and state.selected_playlist.delete_after_play):
             try:
                 selected_file.unlink()

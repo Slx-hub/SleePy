@@ -66,20 +66,19 @@ class AudioPlayer:
         except Exception as e:
             LOGGER.error("Failed to play sound %s: %s", sound_file, e)
     
-    def play_sound_cancellable(self, filepath: str, action_keys: List[str], non_terminating_keys: List[str] = None) -> str:
+    def play_sound_cancellable(self, state: StateContainer, action_keys: List[str], non_terminating_keys: List[str] = []) -> str:
         """Play a sound file, allowing cancellation via special keys.
         
         Args:
-            filepath: Path to the sound file.
+            state: Program state containing the audio file path.
             action_keys: Keys that can cancel playback.
             non_terminating_keys: Keys that don't stop playback (default: empty list).
         """
-        if non_terminating_keys is None:
-            non_terminating_keys = []
         return self._run_cancellable_process(
-            [self.APLAY_CMD, str(filepath)],
+            [self.APLAY_CMD, str(state.current_audio_file)],
             action_keys,
-            non_terminating_keys
+            non_terminating_keys,
+            state
         )
     
     def stream_video_sound_cancellable(

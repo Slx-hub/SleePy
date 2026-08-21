@@ -120,8 +120,9 @@ class StateMachine:
     def _state_wait(self) -> None:
         """Wait before shutdown."""
         LOGGER.info("Waiting before shutdown")
+        self.state.current_audio_file = "./sounds/wait.wav"
         pressed_key = self.audio_player.play_sound_cancellable(
-            "./sounds/wait.wav", SPECIAL_KEYS
+            self.state, SPECIAL_KEYS
         )
         if not self._handle_action_key(pressed_key, State.PLAY):
             self.audio_player.set_mute(True)
