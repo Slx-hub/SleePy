@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Python script after ALSA is ready
+After=sound.target
+
+[Service]
+ExecStart=/usr/bin/python3 startup_jingle.py
+RemainAfterExit=true
+Environment=DISPLAY=:0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+WorkingDirectory=/home/pi/Music/
+
+[Install]
+WantedBy=default.target

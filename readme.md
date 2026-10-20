@@ -6,3 +6,5 @@
   - Run: `.\start.ps1` (or use the VS Code launch config)
   - Browser: install `wishingTable/userscript.user.js` via Violentmonkey
   - Requires: yt-dlp & deno & ffmpeg (via choco f.ex.), and SSH host `SleePy` configured in `~/.ssh/config`
+- Services are set up by `setup.sh`: the jingle is a **user** service (needs PipeWire from the autologin session), the boot health check is a system service.
+- **Num Lock blinking 2x/second = bad boot.** Some boots come up with corrupted memory (random SEGV/ILL crashes, likely the no-name SD card) and have no audio. `setup/boot_healthcheck.sh` detects this ~60s after boot and reboots, max 2 times in a row; after that it just keeps blinking -> power cycle. Logs: `journalctl -u sleepy_healthcheck -b`

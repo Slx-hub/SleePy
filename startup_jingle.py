@@ -17,6 +17,8 @@ if __name__ == '__main__':
     time.sleep(2)
     
     player = AudioPlayer()
-    player.play_sound("startup.wav")
-    
+    if not player.play_sound("startup.wav"):
+        logger.error("SleePy startup jingle failed")
+        sys.exit(1)
+
     logger.info("SleePy startup jingle completed")

@@ -1,12 +1,13 @@
 #!/bin/bash
+# Run from ~/Music
 
-echo "Linking systemd services..."
-sudo systemctl link "$(pwd)/setup/sleepy_boot.service"
+echo "Linking + enabling boot health check (system service)..."
+sudo systemctl link "$(pwd)/setup/sleepy_healthcheck.service"
+sudo systemctl enable sleepy_healthcheck.service
 
-echo "Enabling services..."
-sudo systemctl enable sleepy_boot.service
-
-echo "Starting services..."
-sudo systemctl start sleepy_boot.service
+# The jingle has to be a user service: it plays through PipeWire, which only exists in the login session
+echo "Linking + enabling startup jingle (user service)..."
+systemctl --user link "$(pwd)/setup/startup_jingle.service"
+systemctl --user enable startup_jingle.service
 
 echo "Done."

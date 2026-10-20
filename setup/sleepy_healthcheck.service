@@ -1,0 +1,10 @@
+[Unit]
+Description=SleePy bad-boot check (blink Num Lock + reboot)
+
+[Service]
+# Not oneshot: the script waits until ~60s uptime and shouldn't hold up multi-user.target meanwhile
+Type=exec
+ExecStart=/home/pi/Music/setup/boot_healthcheck.sh
+
+[Install]
+WantedBy=multi-user.target

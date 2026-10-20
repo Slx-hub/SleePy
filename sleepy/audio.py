@@ -38,33 +38,48 @@ class AudioPlayer:
     def _set_system_volume(volume) -> None:
         """Set system ALSA volume on startup."""
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ['amixer', 'sset', 'Master', f'{volume}%'],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
                 check=False
             )
+            if result.returncode != 0:
+                LOGGER.warning("Failed to set system volume: %s", result.stderr.strip())
+                return
             LOGGER.info("System volume set to %d%%", volume)
         except Exception as e:
             LOGGER.warning("Failed to set system volume: %s", e)
-    
-    def play_sound(self, sound_file: str) -> None:
-        """Play a sound effect file."""
+
+    def play_sound(self, sound_file: str) -> bool:
+        """Play a sound effect file. Returns False if playback failed."""
         if self.mute:
-            return
-        
+            return True
+
         sound_path = Path(AUDIO_SOUND_DIR) / sound_file
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [self.APLAY_CMD, str(sound_path)],
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
                 check=False
             )
         except FileNotFoundError:
             LOGGER.error("Audio player not found: %s", self.APLAY_CMD)
+            return False
         except Exception as e:
             LOGGER.error("Failed to play sound %s: %s", sound_file, e)
+            return False
+
+        if result.returncode != 0:
+            LOGGER.error(
+                "Failed to play sound %s (exit %d): %s",
+                sound_file, result.returncode, result.stderr.strip()
+            )
+            return False
+        return True
     
     def play_sound_cancellable(self, state: StateContainer, action_keys: List[str], non_terminating_keys: List[str] = []) -> str:
         """Play a sound file, allowing cancellation via special keys.
@@ -152,6 +167,9 @@ class AudioPlayer:
                                 proc.kill()
                             return key
                     time.sleep(0.1)
+            # stderr isn't captured here (long mpv runs could fill the pipe), so at least log the exit code
+            if proc.returncode != 0:
+                LOGGER.error("Process %s exited with code %d", cmd[0], proc.returncode)
         except Exception as e:
             LOGGER.error("Error while monitoring process: %s", e)
             proc.terminate()
