@@ -166,6 +166,9 @@ def download(req: DownloadRequest) -> dict:
                 # usually .opus, sometimes .m4a.
                 "--format", "bestaudio/best",
                 "--extract-audio",
+                # A watch URL opened from a playlist also carries &list=...;
+                # without this yt-dlp downloads the whole list.
+                "--no-playlist",
                 "-o", str(job_dir / "%(title)s.%(ext)s"),
                 "--cookies-from-browser", "firefox",  # or chromium if Firefox not available
                 req.url
