@@ -1,4 +1,8 @@
-"""Local server that downloads a YouTube video as WAV and transfers it to SleePy via scp."""
+"""Local server that downloads a YouTube video's audio and transfers it to SleePy via scp.
+
+The audio is kept in YouTube's own format (usually Opus, ~1 MB per minute)
+rather than converted to WAV, which was ~10x bigger with no quality gain.
+"""
 
 import glob
 import logging
@@ -31,12 +35,16 @@ app.add_middleware(
 _YOUTUBE_RE = re.compile(r"^https://(www\.)?youtube\.com/watch\?")
 _SCP_DEST = "SleePy:~/Music/local/input/"
 _DOWNLOAD_TIMEOUT = 600   # seconds for yt-dlp
-_SCP_TIMEOUT = 120        # seconds for scp
 _FFMPEG_TIMEOUT = 300     # seconds for the trim pass
+# scp gets a fixed allowance plus time proportional to the file size. The Pi
+# (3B+ on Wi-Fi) takes uploads at ~3.4 MB/s; budgeting for 1 MB/s leaves ~3x
+# headroom. A killed scp leaves a truncated file on the Pi, so err on the long side.
+_SCP_BASE_TIMEOUT = 60
+_SCP_MIN_BYTES_PER_SEC = 1_000_000
 _MAX_START_SECONDS = 86400
-# ~0.5 s of 44.1 kHz stereo PCM. Below this the cut ate the whole file, which
-# means the start offset landed past the end of the video.
-_MIN_WAV_BYTES = 100_000
+# Shorter than this after trimming means the cut ate the whole file, i.e. the
+# start offset landed past the end of the video.
+_MIN_TRIMMED_SECONDS = 1.0
 
 # Prepend common choco-installed tool paths so yt-dlp subprocess finds node + ffmpeg
 _EXTRA_PATHS = [
@@ -69,14 +77,35 @@ class DownloadRequest(BaseModel):
         return v
 
 
-def _trim_wav(file_path: Path, start_seconds: float) -> None:
-    """Drop the first `start_seconds` of a WAV file, in place.
+def _duration(file_path: Path) -> float:
+    """Length of an audio file in seconds, or 0 if ffprobe can't tell."""
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(file_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=_ENV,
+    )
+    try:
+        return float(probe.stdout.strip())
+    except ValueError:
+        return 0.0
 
-    PCM is constant-bitrate, so an input seek plus a stream copy is sample-exact
-    and needs no re-encode. The trimmed file takes over the original name so the
-    clean video title is what lands on the Pi.
+
+def _trim_audio(file_path: Path, start_seconds: float) -> None:
+    """Drop the first `start_seconds` of an audio file, in place.
+
+    An input seek plus a stream copy needs no re-encode; the cut lands on the
+    nearest packet boundary (20 ms for Opus). The trimmed file takes over the
+    original name so the clean video title is what lands on the Pi.
     """
-    trimmed = file_path.with_suffix(".trimmed.wav")
+    trimmed = file_path.with_name(f"{file_path.stem}.trimmed{file_path.suffix}")
     LOGGER.info(f"Trimming {start_seconds:g}s off the start of {file_path.name}")
 
     ff = subprocess.run(
@@ -107,10 +136,10 @@ def _trim_wav(file_path: Path, start_seconds: float) -> None:
             detail=f"Trim failed: {ff.stderr.strip()[:200]}"
         )
 
-    size = trimmed.stat().st_size if trimmed.exists() else 0
-    if size < _MIN_WAV_BYTES:
+    length = _duration(trimmed) if trimmed.exists() else 0.0
+    if length < _MIN_TRIMMED_SECONDS:
         trimmed.unlink(missing_ok=True)
-        LOGGER.error(f"Trim left only {size} bytes of {file_path.name}")
+        LOGGER.error(f"Trim left only {length:.1f}s of {file_path.name}")
         raise HTTPException(
             status_code=400,
             detail=f"Nothing left after cutting {start_seconds:g}s "
@@ -118,7 +147,7 @@ def _trim_wav(file_path: Path, start_seconds: float) -> None:
         )
 
     trimmed.replace(file_path)
-    LOGGER.info(f"Trimmed {file_path.name} down to {size} bytes")
+    LOGGER.info(f"Trimmed {file_path.name} down to {length:.0f}s")
 
 
 @app.post("/download")
@@ -133,8 +162,10 @@ def download(req: DownloadRequest) -> dict:
         dl = subprocess.run(
             [
                 "yt-dlp",
+                # Audio-only stream, extracted as-is (no --audio-format):
+                # usually .opus, sometimes .m4a.
+                "--format", "bestaudio/best",
                 "--extract-audio",
-                "--audio-format", "wav",
                 "-o", str(job_dir / "%(title)s.%(ext)s"),
                 "--cookies-from-browser", "firefox",  # or chromium if Firefox not available
                 req.url
@@ -163,24 +194,27 @@ def download(req: DownloadRequest) -> dict:
             
             raise HTTPException(status_code=500, detail=detail)
 
-        wav_files = list(job_dir.glob("*.wav"))
-        LOGGER.info(f"Found {len(wav_files)} WAV files: {wav_files}")
-        
-        if not wav_files:
-            LOGGER.error(f"No WAV files found in {job_dir}")
-            raise HTTPException(status_code=500, detail="yt-dlp finished but no .wav file was found")
+        # yt-dlp deletes its intermediate download after extracting, so
+        # whatever is left in the job dir is the audio.
+        audio_files = [p for p in job_dir.iterdir() if p.is_file()]
+        LOGGER.info(f"Found {len(audio_files)} audio files: {audio_files}")
+
+        if not audio_files:
+            LOGGER.error(f"No audio files found in {job_dir}")
+            raise HTTPException(status_code=500, detail="yt-dlp finished but no audio file was found")
 
         transferred = []
-        for file_path in wav_files:
+        for file_path in audio_files:
             if req.start_seconds > 0:
-                _trim_wav(file_path, req.start_seconds)
+                _trim_audio(file_path, req.start_seconds)
 
-            LOGGER.info(f"Transferring {file_path} to {_SCP_DEST}")
+            scp_timeout = _SCP_BASE_TIMEOUT + file_path.stat().st_size // _SCP_MIN_BYTES_PER_SEC
+            LOGGER.info(f"Transferring {file_path} to {_SCP_DEST} (timeout {scp_timeout}s)")
             scp = subprocess.run(
                 ["scp", str(file_path), _SCP_DEST],
                 capture_output=True,
                 text=True,
-                timeout=_SCP_TIMEOUT,
+                timeout=scp_timeout,
             )
             LOGGER.debug(f"scp stdout: {scp.stdout}")
             LOGGER.debug(f"scp stderr: {scp.stderr}")
@@ -203,6 +237,12 @@ def download(req: DownloadRequest) -> dict:
 
     except HTTPException:
         raise
+    except subprocess.TimeoutExpired as e:
+        # The default message starts with the whole argv, which is all the
+        # button has room to show.
+        tool = Path(e.cmd[0]).stem
+        LOGGER.error(f"{tool} timed out after {e.timeout:.0f}s")
+        raise HTTPException(status_code=504, detail=f"{tool} timed out after {e.timeout:.0f}s")
     except Exception as e:
         LOGGER.exception(f"Unexpected error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

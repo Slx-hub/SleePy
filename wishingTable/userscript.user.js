@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SleePy Downloader
 // @namespace    sleepy-downloader
-// @version      1.1
-// @description  Adds buttons to YouTube watch pages that download the current video as WAV to SleePy, optionally cutting off everything before the current playback position
+// @version      1.2
+// @description  Adds buttons to YouTube watch pages that download the current video's audio to SleePy, optionally cutting off everything before the current playback position
 // @match        https://www.youtube.com/*
 // @grant        GM_xmlhttpRequest
 // @connect      127.0.0.1
@@ -171,7 +171,10 @@
       url:     `${SERVER}/download`,
       headers: { 'Content-Type': 'application/json' },
       data:    JSON.stringify({ url: location.href, start_seconds: startSeconds }),
-      timeout: 660000, // 11 min — covers long videos + scp transfer
+      // Backstop only: the server times out each step itself (yt-dlp 10 min,
+      // trim 5 min, scp scaled to file size) and always answers. Giving up
+      // here first would just hide that answer.
+      timeout: 3600000, // 60 min
 
       onload(res) {
         try {

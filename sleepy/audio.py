@@ -89,8 +89,15 @@ class AudioPlayer:
             action_keys: Keys that can cancel playback.
             non_terminating_keys: Keys that don't stop playback (default: empty list).
         """
+        path = str(state.current_audio_file)
+        # aplay only understands WAV (the UI sounds and older tracks); newer
+        # tracks keep YouTube's compressed audio (Opus/M4A), which needs mpv.
+        if path.lower().endswith('.wav'):
+            cmd = [self.APLAY_CMD, path]
+        else:
+            cmd = [self.MPV_CMD, '--no-video', path]
         return self._run_cancellable_process(
-            [self.APLAY_CMD, str(state.current_audio_file)],
+            cmd,
             action_keys,
             non_terminating_keys,
             state
